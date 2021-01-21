@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "nightly", feature(maybe_uninit_array_assume_init))]
 use core::mem::MaybeUninit;
 
 pub mod buffer;

@@ -11,7 +11,8 @@ use core::fmt;
 use core::mem::MaybeUninit;
 
 use crate::initializer::BufferInitializer;
-use crate::traits::{Initialize, InitializeExt};
+use crate::traits::Initialize;
+use crate::wrappers::AsUninit;
 
 pub struct Buffer<T> {
     pub(crate) initializer: BufferInitializer<T>,
@@ -416,11 +417,14 @@ where
         self.fill_by_repeating(0_u8);
     }
 }
-impl<'a> Buffer<&'a mut [u8]> {
+impl<'a> Buffer<AsUninit<&'a mut [u8]>> {
     // TODO: Use a trait that makes the dynamic counter statically set to full.
     #[inline]
     pub fn from_slice_mut(slice: &'a mut [u8]) -> Self {
         let mut initializer = BufferInitializer::new(slice);
+        unsafe {
+            initializer.advance_to_end();
+        }
         Self::from_initializer(initializer)
     }
 }

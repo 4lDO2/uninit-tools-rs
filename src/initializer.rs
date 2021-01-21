@@ -793,7 +793,7 @@ mod tests {
         }
         #[test]
         fn buffer_parts() {
-            let mut slice = [MaybeUninit::uninit(); 32];
+            let mut slice = [MaybeUninit::<u8>::uninit(); 32];
             let mut buffer = BufferInitializer::uninit(&mut slice[..]);
 
             assert_eq!(buffer.uninit_part().len(), 32);

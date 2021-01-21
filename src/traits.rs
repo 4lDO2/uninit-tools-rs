@@ -227,6 +227,8 @@ impl<Item> From<AssertInit<Vec<MaybeUninit<Item>>>> for Vec<Item> {
 }
 #[cfg(feature = "nightly")]
 unsafe impl<Item, const N: usize> Initialize for [MaybeUninit<Item>; N] {
+    type Item = Item;
+
     #[inline]
     fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
         self
@@ -237,27 +239,11 @@ unsafe impl<Item, const N: usize> Initialize for [MaybeUninit<Item>; N] {
     }
 }
 #[cfg(feature = "nightly")]
-impl<const N: usize> From<AssertInit<[MaybeUninit<Item>; N]>> for [Item; N] {
+impl<Item, const N: usize> From<AssertInit<[MaybeUninit<Item>; N]>> for [Item; N] {
     #[inline]
     fn from(init: AssertInit<[MaybeUninit<Item>; N]>) -> [Item; N] {
         unsafe {
-            // SAFETY: This is safe, since [Item; N] and [MaybeUninit<Item>; N] are guaranteed to
-            // have the exact same layouts, making them interchangable except for the
-            // initialization invariant, which the caller must uphold.
-
-            // XXX: This should ideally work. See issue https://github.com/rust-lang/rust/issues/61956
-            // for more information.
-            //
-            // core::mem::transmute::<[MaybeUninit<Item>; N], [Item; N]>(self)
-            //
-            // ... but, we'll have to rely on transmute_copy, which is more dangerous and requires the
-            // original type to be dropped. We have no choice. Hopefully the optimizer will understand
-            // this as well as it understands the regular transmute.
-            //
-            // XXX: Another solution would be to introduce assume_init for const-generic arrays.
-            let init = core::mem::transmute_copy(&init);
-            core::mem::forget(init);
-            init
+            MaybeUninit::array_assume_init(init.into_inner())
         }
     }
 }
@@ -283,10 +269,27 @@ mod for_arrays {
             impl<Item> From<AssertInit<[MaybeUninit<Item>; $size]>> for [Item; $size] {
                 #[inline]
                 fn from(init_array: AssertInit<[MaybeUninit<Item>; $size]>) -> [Item; $size] {
+                    // SAFETY: This is safe, since [Item; N] and [MaybeUninit<Item>; N] are
+                    // guaranteed to have the exact same layouts, making them interchangable except
+                    // for the initialization invariant, which the caller must uphold. Regarding
+                    // validity and the fact that some types forbid aliasing (for example, we
+                    // cannot have multiple `Box`es pointing to the same memory), this is also not
+                    // an issue, since any rules regarding bit pattern is only followed for `init`.
+
+                    // XXX: This should ideally work. See issue
+                    // https://github.com/rust-lang/rust/issues/61956 for more information.
+                    //
+                    // core::mem::transmute::<[MaybeUninit<Item>; N], [Item; N]>(self)
+                    //
+                    // ... but, we'll have to rely on transmute_copy, which is more dangerous and
+                    // requires the original type to be dropped. We have no choice. Hopefully the
+                    // optimizer will understand this as well as it understands the regular
+                    // transmute.
                     unsafe {
-                        // SAFETY: Refer to assume_init for the const generics-based version of this
-                        // impl..
-                        core::mem::transmute(init_array)
+                        let inner = init_array.into_inner();
+                        let init = core::mem::transmute_copy(&inner);
+                        core::mem::forget(inner);
+                        init
                     }
                 }
             }
