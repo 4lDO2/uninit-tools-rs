@@ -78,18 +78,18 @@ pub unsafe fn cast_uninit_to_init_slice_mut<U>(uninit: &mut [MaybeUninit<U>]) ->
 /// Fill a possibly uninitialized mutable slice of bytes, with the same `byte`, returning the
 /// initialized slice.
 #[inline]
-pub fn fill_uninit_slice<U: Copy>(slice: &mut [MaybeUninit<U>], byte: U) -> &mut [U] {
+pub fn fill_uninit_slice<U: Copy>(slice: &mut [MaybeUninit<U>], item: U) -> &mut [U] {
     unsafe {
         // NOTE: This is solely to allow for any improved optimizations nightly may offer; we all
         // know that memset most likely is faster (and cleaner) than a loop.
         #[cfg(feature = "nightly")]
         {
-            slice.fill(MaybeUninit::new(byte));
+            slice.fill(MaybeUninit::new(item));
         }
 
         #[cfg(not(feature = "nightly"))]
         for slice_byte in slice.iter_mut() {
-            *slice_byte = MaybeUninit::new(byte);
+            *slice_byte = MaybeUninit::new(item);
         }
 
         cast_uninit_to_init_slice_mut(slice)

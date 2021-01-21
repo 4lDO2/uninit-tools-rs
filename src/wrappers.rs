@@ -109,17 +109,17 @@ where
     T: Initialize,
 {
     #[inline]
-    pub fn get_init_ref(&self) -> &[u8] {
+    pub fn get_init_ref(&self) -> &[T::Item] {
         unsafe { crate::cast_uninit_to_init_slice(self.inner().as_maybe_uninit_slice()) }
     }
     #[inline]
-    pub fn get_init_mut(&mut self) -> &mut [u8] {
+    pub fn get_init_mut(&mut self) -> &mut [T::Item] {
         unsafe {
             crate::cast_uninit_to_init_slice_mut(self.inner_mut().as_maybe_uninit_slice_mut())
         }
     }
     #[inline]
-    pub fn get_uninit_ref(&self) -> &[MaybeUninit<u8>] {
+    pub fn get_uninit_ref(&self) -> &[MaybeUninit<T::Item>] {
         self.inner().as_maybe_uninit_slice()
     }
     /// Get a mutable slice to the inner uninitialized slice.
@@ -131,52 +131,43 @@ where
     /// it allows for de-initialization. (This can happen when overwriting the resulting slice with
     /// [`MaybeUninit::uninit()`].
     #[inline]
-    pub unsafe fn get_uninit_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    pub unsafe fn get_uninit_mut(&mut self) -> &mut [MaybeUninit<T::Item>] {
         self.inner_mut().as_maybe_uninit_slice_mut()
     }
 }
-impl<T> AsRef<[u8]> for AssertInit<T>
+impl<T> AsRef<[T::Item]> for AssertInit<T>
 where
     T: Initialize,
 {
     #[inline]
-    fn as_ref(&self) -> &[u8] {
+    fn as_ref(&self) -> &[T::Item] {
         self.get_init_ref()
     }
 }
-impl<T> AsMut<[u8]> for AssertInit<T>
+impl<T> AsMut<[T::Item]> for AssertInit<T>
 where
     T: Initialize,
 {
     #[inline]
-    fn as_mut(&mut self) -> &mut [u8] {
+    fn as_mut(&mut self) -> &mut [T::Item] {
         self.get_init_mut()
     }
 }
-impl<T> AsRef<[MaybeUninit<u8>]> for AssertInit<T>
+impl<T> Borrow<[T::Item]> for AssertInit<T>
 where
     T: Initialize,
 {
     #[inline]
-    fn as_ref(&self) -> &[MaybeUninit<u8>] {
-        self.get_uninit_ref()
-    }
-}
-impl<T> Borrow<[u8]> for AssertInit<T>
-where
-    T: Initialize,
-{
-    #[inline]
-    fn borrow(&self) -> &[u8] {
+    fn borrow(&self) -> &[T::Item] {
         self.get_init_ref()
     }
 }
-impl<T> BorrowMut<[u8]> for AssertInit<T>
+impl<T> BorrowMut<[T::Item]> for AssertInit<T>
 where
     T: Initialize,
 {
     #[inline]
-    fn borrow_mut(&mut self) -> &mut [u8] {
+    fn borrow_mut(&mut self) -> &mut [T::Item] {
         self.get_init_mut()
     }
 }
@@ -184,10 +175,10 @@ impl<T> Deref for AssertInit<T>
 where
     T: Initialize,
 {
-    type Target = [u8];
+    type Target = [T::Item];
 
     #[inline]
-    fn deref(&self) -> &[u8] {
+    fn deref(&self) -> &[T::Item] {
         self.get_init_ref()
     }
 }
@@ -196,22 +187,28 @@ where
     T: Initialize,
 {
     #[inline]
-    fn deref_mut(&mut self) -> &mut [u8] {
+    fn deref_mut(&mut self) -> &mut [T::Item] {
         self.get_init_mut()
     }
 }
 impl<T> PartialEq for AssertInit<T>
 where
     T: Initialize,
+    T::Item: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.get_init_ref() == other.get_init_ref()
     }
 }
-impl<T> Eq for AssertInit<T> where T: Initialize {}
+impl<T> Eq for AssertInit<T>
+where
+    T: Initialize,
+    T::Item: Eq,
+{}
 impl<T> PartialOrd for AssertInit<T>
 where
     T: Initialize,
+    T::Item: Ord,
 {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(Ord::cmp(self, other))
@@ -220,6 +217,7 @@ where
 impl<T> Ord for AssertInit<T>
 where
     T: Initialize,
+    T::Item: Ord,
 {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         Ord::cmp(self.get_init_ref(), other.get_init_ref())
@@ -228,6 +226,7 @@ where
 impl<T> core::hash::Hash for AssertInit<T>
 where
     T: Initialize,
+    T::Item: core::hash::Hash,
 {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.get_init_ref().hash(state)
@@ -314,5 +313,42 @@ impl<T> DerefMut for SingleVector<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+pub struct AsUninit<T>(pub T);
+
+impl<T> Deref for AsUninit<T>
+where
+    T: Deref,
+{
+    type Target = <T as Deref>::Target;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+impl<T> DerefMut for AsUninit<T>
+where
+    T: DerefMut,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut *self.0
+    }
+}
+
+unsafe impl<T, Item> Initialize for AsUninit<T>
+where
+    T: Deref<Target = [Item]> + DerefMut,
+{
+    type Item = Item;
+
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
+        let slice: &[Item] = &*self;
+        crate::cast_init_to_uninit_slice(slice)
+    }
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
+        let slice_mut: &mut [Item] = &mut *self;
+        crate::cast_init_to_uninit_slice_mut(slice_mut)
     }
 }

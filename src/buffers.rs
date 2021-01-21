@@ -13,7 +13,7 @@ pub struct Buffers<T> {
     // TODO: Use some integer generic type (or perhaps simply a platform-specific type alias), to
     // reduce the memory footprint when IOV_MAX happens to be less than 65536. Or at least just
     // 32-bit.
-    bytes_filled_for_vector: usize,
+    items_filled_for_vector: usize,
     // TODO: Use specialization to omit this field when there is only one buffer..
     vectors_filled: usize,
 }
@@ -23,7 +23,7 @@ impl<T> Buffers<T> {
     pub const fn from_initializer(initializer: BuffersInitializer<T>) -> Self {
         Self {
             initializer,
-            bytes_filled_for_vector: 0,
+            items_filled_for_vector: 0,
             vectors_filled: 0,
         }
     }
@@ -54,9 +54,10 @@ impl<T> Buffers<T> {
         self.vectors_filled
     }
 }
-impl<T> Buffers<T>
+impl<T, Item> Buffers<T>
 where
     T: InitializeVectored,
+    T::UninitVector: Initialize<Item = Item>,
 {
     #[inline]
     pub fn all_previously_filled_vectors(&self) -> &[AssertInit<T::UninitVector>] {
@@ -83,7 +84,7 @@ where
         }
     }
     #[inline]
-    pub fn current_vector_all(&self) -> Option<&[MaybeUninit<u8>]> {
+    pub fn current_vector_all(&self) -> Option<&[MaybeUninit<Item>]> {
         self.debug_assert_validity();
 
         let all_vectors = self.initializer().all_uninit_vectors();
@@ -101,7 +102,7 @@ where
     ///
     /// The caller must not allow the returned slice to be de-initialized in safe code.
     #[inline]
-    pub unsafe fn current_vector_all_mut(&mut self) -> Option<&mut [MaybeUninit<u8>]> {
+    pub unsafe fn current_vector_all_mut(&mut self) -> Option<&mut [MaybeUninit<Item>]> {
         self.debug_assert_validity();
 
         let all_vectors_mut = self.initializer.all_uninit_vectors_mut();
@@ -117,7 +118,7 @@ where
         }
     }
     #[inline]
-    pub fn current_vector_init_uninit_parts(&self) -> Option<(&[u8], &[MaybeUninit<u8>])> {
+    pub fn current_vector_init_uninit_parts(&self) -> Option<(&[Item], &[MaybeUninit<Item>])> {
         self.debug_assert_validity();
 
         let ordering = self
@@ -145,7 +146,7 @@ where
     #[inline]
     pub fn current_vector_init_uninit_parts_mut(
         &mut self,
-    ) -> Option<(&mut [u8], &mut [MaybeUninit<u8>])> {
+    ) -> Option<(&mut [Item], &mut [MaybeUninit<Item>])> {
         self.debug_assert_validity();
 
         let ordering = self
@@ -166,29 +167,29 @@ where
         }
     }
     #[inline]
-    pub fn current_vector_filled_part(&self) -> Option<&[u8]> {
+    pub fn current_vector_filled_part(&self) -> Option<&[Item]> {
         self.debug_assert_validity();
 
         let base_ptr = { self.current_vector_all()?.as_ptr() };
 
         Some(unsafe {
-            core::slice::from_raw_parts(base_ptr as *const u8, self.bytes_filled_for_vector)
+            core::slice::from_raw_parts(base_ptr as *const Item, self.items_filled_for_vector)
         })
     }
     #[inline]
-    pub fn current_vector_filled_part_mut(&mut self) -> Option<&mut [u8]> {
+    pub fn current_vector_filled_part_mut(&mut self) -> Option<&mut [Item]> {
         self.debug_assert_validity();
 
         unsafe {
             let base_ptr = { self.current_vector_all_mut()?.as_mut_ptr() };
             Some(core::slice::from_raw_parts_mut(
-                base_ptr as *mut u8,
-                self.bytes_filled_for_vector,
+                base_ptr as *mut Item,
+                self.items_filled_for_vector,
             ))
         }
     }
     #[inline]
-    pub fn current_vector_unfilled_all_part(&self) -> Option<&[MaybeUninit<u8>]> {
+    pub fn current_vector_unfilled_all_part(&self) -> Option<&[MaybeUninit<Item>]> {
         self.debug_assert_validity();
 
         let (base_ptr, base_len) = {
@@ -197,8 +198,8 @@ where
         };
 
         Some(unsafe {
-            let ptr = base_ptr.add(self.bytes_filled_for_vector);
-            let len = base_len - self.bytes_filled_for_vector;
+            let ptr = base_ptr.add(self.items_filled_for_vector);
+            let len = base_len - self.items_filled_for_vector;
 
             core::slice::from_raw_parts(ptr, len)
         })
@@ -213,7 +214,7 @@ where
     #[inline]
     pub unsafe fn current_vector_unfilled_all_part_mut(
         &mut self,
-    ) -> Option<&mut [MaybeUninit<u8>]> {
+    ) -> Option<&mut [MaybeUninit<Item>]> {
         self.debug_assert_validity();
 
         let (base_ptr, base_len) = {
@@ -222,8 +223,8 @@ where
         };
 
         Some({
-            let ptr = base_ptr.add(self.bytes_filled_for_vector);
-            let len = base_len - self.bytes_filled_for_vector;
+            let ptr = base_ptr.add(self.items_filled_for_vector);
+            let len = base_len - self.items_filled_for_vector;
 
             core::slice::from_raw_parts_mut(ptr, len)
         })
@@ -286,7 +287,7 @@ where
     }
     /// Return all vectors that have been fully filled, sequentially, as well as the filled part of
     /// the current vector in progress.
-    pub fn all_filled_vectors(&self) -> (&[AssertInit<T::UninitVector>], &[u8]) {
+    pub fn all_filled_vectors(&self) -> (&[AssertInit<T::UninitVector>], &[Item]) {
         // TODO: Distinguish between None and Some(&[]). Do we really want optional values, when
         // empty slices work too?
         (
@@ -303,7 +304,7 @@ where
     ///
     /// [`current_vector_all_mut`]: #method.current_vector_all_mut
     // FIXME: which ones?
-    pub fn current_vector_parts(&self) -> Option<VectorParts<'_>> {
+    pub fn current_vector_parts(&self) -> Option<VectorParts<'_, Item>> {
         self.debug_assert_validity();
 
         unsafe {
@@ -313,14 +314,14 @@ where
                 (src.as_ptr(), src.len())
             };
 
-            let filled_base_ptr = src_ptr as *const u8;
-            let filled_len = self.bytes_filled_for_vector;
+            let filled_base_ptr = src_ptr as *const Item;
+            let filled_len = self.items_filled_for_vector;
 
             let init_len = self
                 .initializer()
-                .bytes_initialized_for_vector_unchecked(self.vectors_filled);
+                .items_initialized_for_vector_unchecked(self.vectors_filled);
 
-            let unfilled_init_base_ptr = src_ptr.add(self.bytes_filled_for_vector) as *const u8;
+            let unfilled_init_base_ptr = src_ptr.add(self.items_filled_for_vector) as *const Item;
             let unfilled_init_len = init_len - filled_len;
 
             let unfilled_uninit_base_ptr = src_ptr.add(init_len);
@@ -341,7 +342,7 @@ where
     }
     /// For the current vector, return the unfilled and initialized part, the unfilled but
     /// initialized part, and the unfilled and uninitialized part mutably, in that order.
-    pub fn current_vector_parts_mut(&mut self) -> Option<VectorPartsMut<'_>> {
+    pub fn current_vector_parts_mut(&mut self) -> Option<VectorPartsMut<'_, Item>> {
         self.debug_assert_validity();
 
         unsafe {
@@ -351,14 +352,14 @@ where
                 (src.as_mut_ptr(), src.len())
             };
 
-            let filled_base_ptr = src_ptr as *mut u8;
-            let filled_len = self.bytes_filled_for_vector;
+            let filled_base_ptr = src_ptr as *mut Item;
+            let filled_len = self.items_filled_for_vector;
 
             let init_len = self
                 .initializer()
-                .bytes_initialized_for_vector_unchecked(self.vectors_filled);
+                .items_initialized_for_vector_unchecked(self.vectors_filled);
 
-            let unfilled_init_base_ptr = src_ptr.add(self.bytes_filled_for_vector) as *mut u8;
+            let unfilled_init_base_ptr = src_ptr.add(self.items_filled_for_vector) as *mut Item;
             let unfilled_init_len = init_len - filled_len;
 
             let unfilled_uninit_base_ptr = src_ptr.add(init_len);
@@ -378,7 +379,7 @@ where
         }
     }
     fn debug_assert_validity(&self) {
-        debug_assert!(self.bytes_filled_for_vector <= isize::MAX as usize);
+        debug_assert!(self.items_filled_for_vector <= isize::MAX as usize);
         debug_assert!(self.vectors_filled <= self.initializer().total_vector_count());
         debug_assert!(self.vectors_filled <= self.initializer().vectors_initialized());
         // TODO
@@ -392,7 +393,7 @@ where
         self.total_vector_count()
             .wrapping_sub(self.vectors_filled())
     }
-    pub fn count_remaining_bytes_to_fill(&self) -> usize {
+    pub fn count_remaining_items_to_fill(&self) -> usize {
         self.remaining_for_current_vector()
             + self
                 .all_next_unfilled_vectors()
@@ -400,20 +401,20 @@ where
                 .map(|unfilled_vector| unfilled_vector.as_maybe_uninit_slice().len())
                 .sum::<usize>()
     }
-    pub fn count_total_bytes_in_all_vectors(&self) -> usize {
-        self.initializer().count_total_bytes_in_all_vectors()
+    pub fn count_total_items_in_all_vectors(&self) -> usize {
+        self.initializer().count_total_items_in_all_vectors()
     }
-    /// Get the number of bytes that remain before the current vector becomes fully filled.
+    /// Get the number of items that remain before the current vector becomes fully filled.
     ///
     /// If there is no current vector, which is the condition when all vectors have been filled,
     /// then this returns zero.
     #[inline]
     pub fn remaining_for_current_vector(&self) -> usize {
         self.current_vector_all().map_or(0, |current_vector| {
-            current_vector.len() - self.bytes_filled_for_vector
+            current_vector.len() - self.items_filled_for_vector
         })
     }
-    /// Advance the current vector by `count` bytes.
+    /// Advance the current vector by `count` items.
     ///
     /// # Panics
     ///
@@ -434,12 +435,12 @@ where
             &self.initializer().vectors_initialized(),
         );
 
-        let end = self.bytes_filled_for_vector + count;
+        let end = self.items_filled_for_vector + count;
 
         match ordering {
             core::cmp::Ordering::Equal => {
                 assert!(
-                    end <= self.initializer().bytes_initialized_for_current_vector(),
+                    end <= self.initializer().items_initialized_for_current_vector(),
                     "cannot advance the fill count beyond the initialized part"
                 );
                 debug_assert!(end <= current_vector_all_len);
@@ -453,11 +454,11 @@ where
             core::cmp::Ordering::Greater => unsafe { core::hint::unreachable_unchecked() },
         }
 
-        self.bytes_filled_for_vector += end;
+        self.items_filled_for_vector += end;
 
-        if self.bytes_filled_for_vector == current_vector_all_len {
+        if self.items_filled_for_vector == current_vector_all_len {
             self.vectors_filled += 1;
-            self.bytes_filled_for_vector = 0;
+            self.items_filled_for_vector = 0;
         }
     }
     pub fn advance_to_current_vector_end(&mut self) {
@@ -475,7 +476,7 @@ where
 
         match ordering {
             core::cmp::Ordering::Equal => assert_eq!(
-                self.initializer().bytes_initialized_for_current_vector(),
+                self.initializer().items_initialized_for_current_vector(),
                 current_vector_all.len()
             ),
             core::cmp::Ordering::Less => (),
@@ -483,8 +484,14 @@ where
         }
 
         self.vectors_filled += 1;
-        self.bytes_filled_for_vector = 0;
+        self.items_filled_for_vector = 0;
     }
+}
+impl<T> Buffers<T>
+where
+    T: InitializeVectored,
+    T::UninitVector: Initialize<Item = u8>,
+{
     pub fn with_current_vector_unfilled_zeroed(&mut self) -> Option<&mut [u8]> {
         let _ = self.current_vector_all()?;
 
@@ -519,26 +526,26 @@ where
     T: Initialize,
 {
     pub fn from_single_buffer(buffer: Buffer<T>) -> Self {
-        let Buffer { initializer, bytes_filled } = buffer;
+        let Buffer { initializer, items_filled } = buffer;
 
         Self {
             initializer: BuffersInitializer::from_single_buffer_initializer(initializer),
-            bytes_filled_for_vector: bytes_filled,
+            items_filled_for_vector: items_filled,
             vectors_filled: 0,
         }
     }
 }
 #[derive(Clone, Copy, Debug, Default)]
-pub struct VectorParts<'a> {
-    pub filled: &'a [u8],
-    pub unfilled_init: &'a [u8],
-    pub unfilled_uninit: &'a [MaybeUninit<u8>],
+pub struct VectorParts<'a, Item> {
+    pub filled: &'a [Item],
+    pub unfilled_init: &'a [Item],
+    pub unfilled_uninit: &'a [MaybeUninit<Item>],
 }
 #[derive(Debug, Default)]
-pub struct VectorPartsMut<'a> {
-    pub filled: &'a mut [u8],
-    pub unfilled_init: &'a mut [u8],
-    pub unfilled_uninit: &'a mut [MaybeUninit<u8>],
+pub struct VectorPartsMut<'a, Item> {
+    pub filled: &'a mut [Item],
+    pub unfilled_init: &'a mut [Item],
+    pub unfilled_uninit: &'a mut [MaybeUninit<Item>],
 }
 
 pub struct BuffersRef<'buffers, T> {
@@ -560,7 +567,10 @@ impl<'buffers, T> BuffersRef<'buffers, T>
 where
     T: InitializeVectored,
 {
-    pub fn with_current_vector_unfilled_zeroed(&mut self) -> Option<&mut [u8]> {
+    pub fn with_current_vector_unfilled_zeroed(&mut self) -> Option<&mut [u8]>
+    where
+        T::UninitVector: Initialize<Item = u8>,
+    {
         self.inner.with_current_vector_unfilled_zeroed()
     }
     pub fn advance_current_vector(&mut self, count: usize) {

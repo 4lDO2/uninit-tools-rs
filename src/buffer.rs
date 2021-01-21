@@ -1,7 +1,8 @@
 //! Buffers for single-buffer and vectored I/O which tracking initializedness and how much has been
 //! filled. Container types pointing to possibly-uninitialized memory such as
-//! `Vec<MaybeUninit<u8>>`, `IoBox<Uninitialized>`, or `Box<[MaybeUninit<u8>]> can be transformed
-//! into their initialized variants via the [`Initialize`] trait, within requiring unsafe code.
+//! `Vec<MaybeUninit<Item>>`, `IoBox<Uninitialized>`, or `Box<[MaybeUninit<Item>]> can be
+//! transformed into their initialized variants via the [`Initialize`] trait, within requiring
+//! unsafe code.
 //!
 //! This is an implementation of an API similar to what has been proposed in [this
 //! RFC](https://github.com/sfackler/rfcs/blob/read-buf/text/0000-read-buf.md).
@@ -14,7 +15,7 @@ use crate::traits::{Initialize, InitializeExt};
 
 pub struct Buffer<T> {
     pub(crate) initializer: BufferInitializer<T>,
-    pub(crate) bytes_filled: usize,
+    pub(crate) items_filled: usize,
 }
 
 /// A reference to a [`Buffer`], which is meant be a subset of the functionality offered by the
@@ -34,7 +35,7 @@ impl<T> Buffer<T> {
     pub const fn from_initializer(initializer: BufferInitializer<T>) -> Self {
         Self {
             initializer,
-            bytes_filled: 0,
+            items_filled: 0,
         }
     }
     /// Create a new buffer, defaulting to not being initialized, nor filled. Prefer [`new_init`]
@@ -50,10 +51,10 @@ impl<T> Buffer<T> {
     pub fn into_raw_parts(self) -> (BufferInitializer<T>, usize) {
         let Self {
             initializer,
-            bytes_filled,
+            items_filled,
         } = self;
 
-        (initializer, bytes_filled)
+        (initializer, items_filled)
     }
     #[inline]
     pub fn into_initializer(self) -> BufferInitializer<T> {
@@ -70,13 +71,13 @@ impl<T> Buffer<T> {
         self.into_initializer().into_inner()
     }
 
-    /// Get the number of bytes that are currently filled, within the buffer. Note that this is
-    /// different from the number of initialized bytes; use [`bytes_initialized`] for that.
+    /// Get the number of items that are currently filled, within the buffer. Note that this is
+    /// different from the number of initialized items; use [`items_initialized`] for that.
     ///
-    /// [`bytes_initialized`]: #method.bytes_initialized
+    /// [`items_initialized`]: #method.items_initialized
     #[inline]
-    pub const fn bytes_filled(&self) -> usize {
-        self.bytes_filled
+    pub const fn items_filled(&self) -> usize {
+        self.items_filled
     }
 
     #[inline]
@@ -106,54 +107,54 @@ where
 
     pub(crate) fn debug_assert_validity(&self) {
         self.initializer.debug_assert_validity();
-        debug_assert!(self.bytes_filled() <= self.capacity());
-        debug_assert!(self.bytes_filled() <= self.initializer.bytes_initialized());
+        debug_assert!(self.items_filled() <= self.capacity());
+        debug_assert!(self.items_filled() <= self.initializer.items_initialized());
     }
-    /// Get the number of bytes that may be filled before the buffer is full.
+    /// Get the number of items that may be filled before the buffer is full.
     #[inline]
     pub fn remaining(&self) -> usize {
-        debug_assert!(self.capacity() >= self.bytes_filled);
-        self.capacity().wrapping_sub(self.bytes_filled)
+        debug_assert!(self.capacity() >= self.items_filled);
+        self.capacity().wrapping_sub(self.items_filled)
     }
     /// Check whether the buffer is completely filled, and thus also initialized.
     #[inline]
     pub fn is_full(&self) -> bool {
-        self.bytes_filled() == self.capacity()
+        self.items_filled() == self.capacity()
     }
     /// Check whether the buffer is empty. It can be partially or fully initialized however.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.bytes_filled() == 0
+        self.items_filled() == 0
     }
     /// Retrieve a shared slice to the filled part of the buffer.
     #[inline]
-    pub fn filled_part(&self) -> &[u8] {
+    pub fn filled_part(&self) -> &[T::Item] {
         unsafe {
             self.debug_assert_validity();
 
             let ptr = self.initializer.all_uninit().as_ptr();
-            let len = self.bytes_filled;
+            let len = self.items_filled;
 
-            core::slice::from_raw_parts(ptr as *const u8, len)
+            core::slice::from_raw_parts(ptr as *const T::Item, len)
         }
     }
     /// Retrieve a mutable slice to the filled part of the buffer.
     #[inline]
-    pub fn filled_part_mut(&mut self) -> &mut [u8] {
+    pub fn filled_part_mut(&mut self) -> &mut [T::Item] {
         let orig_ptr = unsafe { self.initializer.all_uninit_mut().as_mut_ptr() };
 
         unsafe {
             self.debug_assert_validity();
 
             let ptr = orig_ptr;
-            let len = self.bytes_filled;
+            let len = self.items_filled;
 
-            core::slice::from_raw_parts_mut(ptr as *mut u8, len)
+            core::slice::from_raw_parts_mut(ptr as *mut T::Item, len)
         }
     }
     /// Get a shared slice to the unfilled part, which may be uninitialized.
     #[inline]
-    pub fn unfilled_part(&self) -> &[MaybeUninit<u8>] {
+    pub fn unfilled_part(&self) -> &[MaybeUninit<T::Item>] {
         let (orig_ptr, orig_len) = {
             let orig = self.initializer.all_uninit();
 
@@ -163,8 +164,8 @@ where
         unsafe {
             self.debug_assert_validity();
 
-            let ptr = orig_ptr.add(self.bytes_filled);
-            let len = orig_len.wrapping_sub(self.bytes_filled);
+            let ptr = orig_ptr.add(self.items_filled);
+            let len = orig_len.wrapping_sub(self.items_filled);
 
             core::slice::from_raw_parts(ptr, len)
         }
@@ -189,7 +190,7 @@ where
     /// [`fill_by_repeating`]: #method.fill_by_repeating
     /// [`unfilled_init_uninit_parts_mut`]: #method.unfilled_init_uninit_parts_mut
     #[inline]
-    pub unsafe fn unfilled_part_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    pub unsafe fn unfilled_part_mut(&mut self) -> &mut [MaybeUninit<T::Item>] {
         let (orig_ptr, orig_len) = {
             let orig = self.initializer.all_uninit_mut();
             (orig.as_mut_ptr(), orig.len())
@@ -197,20 +198,20 @@ where
 
         self.debug_assert_validity();
 
-        let ptr = orig_ptr.add(self.bytes_filled);
-        let len = orig_len.wrapping_sub(self.bytes_filled);
+        let ptr = orig_ptr.add(self.items_filled);
+        let len = orig_len.wrapping_sub(self.items_filled);
 
         core::slice::from_raw_parts_mut(ptr, len)
     }
     /// Borrow both the filled and unfilled parts immutably.
     #[inline]
-    pub fn filled_unfilled_parts(&self) -> (&[u8], &[MaybeUninit<u8>]) {
+    pub fn filled_unfilled_parts(&self) -> (&[T::Item], &[MaybeUninit<T::Item>]) {
         (self.filled_part(), self.unfilled_part())
     }
     /// Borrow the filled part, the unfilled but initialized part, and the unfilled and
     /// uninitialized part.
     #[inline]
-    pub fn all_parts(&self) -> (&[u8], &[u8], &[MaybeUninit<u8>]) {
+    pub fn all_parts(&self) -> (&[T::Item], &[T::Item], &[MaybeUninit<T::Item>]) {
         (
             self.filled_part(),
             self.unfilled_init_part(),
@@ -219,7 +220,7 @@ where
     }
 
     #[inline]
-    pub fn all_parts_mut(&mut self) -> (&mut [u8], &mut [u8], &mut [MaybeUninit<u8>]) {
+    pub fn all_parts_mut(&mut self) -> (&mut [T::Item], &mut [T::Item], &mut [MaybeUninit<T::Item>]) {
         let (all_ptr, all_len) = unsafe {
             let all = self.initializer.all_uninit_mut();
 
@@ -229,17 +230,17 @@ where
         unsafe {
             self.debug_assert_validity();
 
-            let filled_base_ptr = all_ptr as *mut u8;
-            let filled_len = self.bytes_filled;
+            let filled_base_ptr = all_ptr as *mut T::Item;
+            let filled_len = self.items_filled;
 
-            let unfilled_init_base_ptr = all_ptr.add(self.bytes_filled) as *mut u8;
+            let unfilled_init_base_ptr = all_ptr.add(self.items_filled) as *mut T::Item;
             let unfilled_init_len = self
                 .initializer
-                .bytes_initialized()
-                .wrapping_sub(self.bytes_filled);
+                .items_initialized()
+                .wrapping_sub(self.items_filled);
 
-            let unfilled_uninit_base_ptr = all_ptr.add(self.initializer.bytes_initialized());
-            let unfilled_uninit_len = all_len.wrapping_sub(self.initializer.bytes_initialized());
+            let unfilled_uninit_base_ptr = all_ptr.add(self.initializer.items_initialized());
+            let unfilled_uninit_len = all_len.wrapping_sub(self.initializer.items_initialized());
 
             let filled = core::slice::from_raw_parts_mut(filled_base_ptr, filled_len);
             let unfilled_init =
@@ -255,11 +256,11 @@ where
     ///
     /// # Safety
     ///
-    /// This is unsafe as the uninit part may have bytes in it that are tracked to be initialized.
+    /// This is unsafe as the uninit part may have items in it that are tracked to be initialized.
     /// It is hence the responsibility of the caller to ensure that the buffer is not deinitialized
     /// by writing [`MaybeUninit::uninit()`] to it.
     #[inline]
-    pub unsafe fn filled_unfilled_parts_mut(&mut self) -> (&mut [u8], &mut [MaybeUninit<u8>]) {
+    pub unsafe fn filled_unfilled_parts_mut(&mut self) -> (&mut [T::Item], &mut [MaybeUninit<T::Item>]) {
         let (all_ptr, all_len) = {
             let all = self.initializer.all_uninit_mut();
 
@@ -269,11 +270,11 @@ where
         {
             self.debug_assert_validity();
 
-            let filled_base_ptr = all_ptr as *mut u8;
-            let filled_len = self.bytes_filled;
+            let filled_base_ptr = all_ptr as *mut T::Item;
+            let filled_len = self.items_filled;
 
-            let unfilled_base_ptr = all_ptr.add(self.bytes_filled);
-            let unfilled_len = all_len.wrapping_sub(self.bytes_filled);
+            let unfilled_base_ptr = all_ptr.add(self.items_filled);
+            let unfilled_len = all_len.wrapping_sub(self.items_filled);
 
             let filled = core::slice::from_raw_parts_mut(filled_base_ptr, filled_len);
             let unfilled = core::slice::from_raw_parts_mut(unfilled_base_ptr, unfilled_len);
@@ -283,18 +284,18 @@ where
     }
 
     #[inline]
-    pub fn unfilled_init_part(&self) -> &[u8] {
+    pub fn unfilled_init_part(&self) -> &[T::Item] {
         unsafe {
             self.debug_assert_validity();
 
             let all = self.initializer.all_uninit();
             let all_ptr = all.as_ptr();
 
-            let unfilled_init_base_ptr = all_ptr.add(self.bytes_filled) as *const u8;
+            let unfilled_init_base_ptr = all_ptr.add(self.items_filled) as *const T::Item;
             let unfilled_init_len = self
                 .initializer
-                .bytes_initialized()
-                .wrapping_sub(self.bytes_filled);
+                .items_initialized()
+                .wrapping_sub(self.items_filled);
 
             core::slice::from_raw_parts(unfilled_init_base_ptr, unfilled_init_len)
         }
@@ -302,41 +303,44 @@ where
 
     /// Get the initialized part of the unfilled part, if there is any.
     #[inline]
-    pub fn unfilled_init_part_mut(&mut self) -> &mut [u8] {
+    pub fn unfilled_init_part_mut(&mut self) -> &mut [T::Item] {
         let (_, unfilled_init, _) = self.all_parts_mut();
 
         unfilled_init
     }
     #[inline]
-    pub fn unfilled_uninit_part(&self) -> &[MaybeUninit<u8>] {
+    pub fn unfilled_uninit_part(&self) -> &[MaybeUninit<T::Item>] {
         self.initializer.uninit_part()
     }
     /// Get the uninitialized part of the unfilled part, if there is any.
     #[inline]
-    pub fn unfilled_uninit_part_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    pub fn unfilled_uninit_part_mut(&mut self) -> &mut [MaybeUninit<T::Item>] {
         self.initializer.uninit_part_mut()
     }
 
     #[inline]
-    pub fn unfilled_parts(&mut self) -> (&[u8], &[MaybeUninit<u8>]) {
+    pub fn unfilled_parts(&mut self) -> (&[T::Item], &[MaybeUninit<T::Item>]) {
         let (_, init, uninit) = self.all_parts();
 
         (init, uninit)
     }
     #[inline]
-    pub fn unfilled_parts_mut(&mut self) -> (&mut [u8], &mut [MaybeUninit<u8>]) {
+    pub fn unfilled_parts_mut(&mut self) -> (&mut [T::Item], &mut [MaybeUninit<T::Item>]) {
         let (_, init, uninit) = self.all_parts_mut();
 
         (init, uninit)
     }
 
-    /// Revert the internal cursor to 0, forgetting about the initialized bytes.
+    /// Revert the internal cursor to 0, forgetting about the initialized items.
     #[inline]
     pub fn revert_to_start(&mut self) {
         self.by_ref().revert_to_start()
     }
     #[inline]
-    pub fn append(&mut self, slice: &[u8]) {
+    pub fn append(&mut self, slice: &[T::Item])
+    where
+        T::Item: Copy,
+    {
         unsafe {
             // TODO: If this would ever turn out to be worth it, this could be optimized as bounds
             // checking gets redundant here.
@@ -351,33 +355,33 @@ where
     pub fn advance(&mut self, count: usize) {
         assert!(
             self.initializer
-                .bytes_initialized()
-                .wrapping_sub(self.bytes_filled)
+                .items_initialized()
+                .wrapping_sub(self.items_filled)
                 >= count,
             "advancing filledness cursor beyond the initialized region ({} + {} = {} filled > {} init)",
-            self.bytes_filled,
+            self.items_filled,
             count,
-            self.bytes_filled + count,
-            self.initializer.bytes_initialized,
+            self.items_filled + count,
+            self.initializer.items_initialized,
         );
-        self.bytes_filled = self.bytes_filled.wrapping_add(count);
+        self.items_filled = self.items_filled.wrapping_add(count);
     }
     #[inline]
     pub fn advance_to_init_part(&mut self) {
-        self.bytes_filled = self.initializer.bytes_initialized;
+        self.items_filled = self.initializer.items_initialized;
     }
-    // TODO: Method for increasing the bytes filled, but not the bytes initialized?
+    // TODO: Method for increasing the items filled, but not the items initialized?
     /// Increment the counter that marks the progress of filling, as well as the initialization
-    /// progress, `count` bytes.
+    /// progress, `count` items.
     ///
     /// # Safety
     ///
     /// This does not initialize nor fill anything, and it is hence up to the user to ensure that
-    /// no uninitialized bytes are marked initialized.
+    /// no uninitialized items are marked initialized.
     pub unsafe fn assume_init(&mut self, count: usize) {
-        self.bytes_filled += count;
-        self.initializer.bytes_initialized =
-            core::cmp::max(self.bytes_filled, self.initializer.bytes_initialized);
+        self.items_filled += count;
+        self.initializer.items_initialized =
+            core::cmp::max(self.items_filled, self.initializer.items_initialized);
 
         self.debug_assert_validity();
     }
@@ -385,34 +389,38 @@ where
     ///
     /// # Safety
     ///
-    /// For this to be safe, the caller must ensure that every single byte in the slice that the
+    /// For this to be safe, the caller must ensure that every single item in the slice that the
     /// buffer wraps, is initialized.
     #[inline]
     pub unsafe fn assume_init_all(&mut self) {
-        self.bytes_filled = self.capacity();
-        self.initializer.bytes_initialized = self.capacity();
+        self.items_filled = self.capacity();
+        self.initializer.items_initialized = self.capacity();
     }
     #[inline]
-    pub fn fill_by_repeating(&mut self, byte: u8) {
+    pub fn fill_by_repeating(&mut self, item: T::Item)
+    where
+        T::Item: Copy,
+    {
         unsafe {
-            self.unfilled_part_mut().init_by_filling(byte);
+            crate::fill_uninit_slice(self.unfilled_part_mut(), item);
+            self.assume_init_all();
         }
     }
+}
+impl<T> Buffer<T>
+where
+    T: Initialize<Item = u8>,
+{
     #[inline]
     pub fn fill_by_zeroing(&mut self) {
-        unsafe {
-            self.unfilled_part_mut().init_by_filling(0_u8);
-        }
+        self.fill_by_repeating(0_u8);
     }
 }
 impl<'a> Buffer<&'a mut [u8]> {
     // TODO: Use a trait that makes the dynamic counter statically set to full.
     #[inline]
     pub fn from_slice_mut(slice: &'a mut [u8]) -> Self {
-        let mut initializer = BufferInitializer::uninit(slice);
-        unsafe {
-            initializer.advance_to_end();
-        }
+        let mut initializer = BufferInitializer::new(slice);
         Self::from_initializer(initializer)
     }
 }
@@ -425,8 +433,8 @@ impl<'a> Buffer<&'a mut [MaybeUninit<u8>]> {
 
 impl<'buffer, T> BufferRef<'buffer, T> {
     #[inline]
-    pub fn bytes_filled(&self) -> usize {
-        self.inner.bytes_filled()
+    pub fn items_filled(&self) -> usize {
+        self.inner.items_filled()
     }
 
     /// Reborrow the inner buffer, getting a buffer reference with a shorter lifetime.
@@ -445,7 +453,7 @@ where
         self.inner.remaining()
     }
     #[inline]
-    pub fn unfilled_parts(&mut self) -> (&mut [u8], &mut [MaybeUninit<u8>]) {
+    pub fn unfilled_parts(&mut self) -> (&mut [T::Item], &mut [MaybeUninit<T::Item>]) {
         self.inner.unfilled_parts_mut()
     }
     /// Get a mutable and possibly-uninitialized reference to all of the buffer.
@@ -454,13 +462,13 @@ where
     ///
     /// The caller must not allow safe code to de-initialize the resulting slice.
     #[inline]
-    pub unsafe fn unfilled_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    pub unsafe fn unfilled_mut(&mut self) -> &mut [MaybeUninit<T::Item>] {
         self.inner.unfilled_part_mut()
     }
-    /// Advance the counter of the number of bytes filled.
+    /// Advance the counter of the number of items filled.
     ///
-    /// The number of bytes that are initialized is also updated accordingly, so that the number of
-    /// bytes initialized is always greater than or equal to the number of bytes filled.
+    /// The number of items that are initialized is also updated accordingly, so that the number of
+    /// items initialized is always greater than or equal to the number of items filled.
     ///
     /// # Safety
     ///
@@ -469,7 +477,7 @@ where
     pub unsafe fn advance(&mut self, count: usize) {
         self.inner.assume_init(count)
     }
-    /// Advance the counter of the number of bytes filled, and the number of bytes initialized, to
+    /// Advance the counter of the number of items filled, and the number of items initialized, to
     /// the end of the buffer.
     ///
     /// # Safety
@@ -484,16 +492,27 @@ where
         self.inner.revert_to_start()
     }
     #[inline]
-    pub fn fill_by_repeating(&mut self, byte: u8) {
-        self.inner.fill_by_repeating(byte)
+    pub fn fill_by_repeating(&mut self, item: T::Item)
+    where
+        T::Item: Copy,
+    {
+        self.inner.fill_by_repeating(item)
     }
+    #[inline]
+    pub fn append(&mut self, slice: &[T::Item])
+    where
+        T::Item: Copy,
+    {
+        self.inner.append(slice)
+    }
+}
+impl<T> BufferRef<'_, T>
+where
+    T: Initialize<Item = u8>,
+{
     #[inline]
     pub fn fill_by_zeroing(&mut self) {
         self.inner.fill_by_zeroing()
-    }
-    #[inline]
-    pub fn append(&mut self, slice: &[u8]) {
-        self.inner.append(slice)
     }
 }
 
@@ -503,23 +522,23 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let ptr = self.initializer().all_uninit().as_ptr();
-        let bytes_init = self.initializer().bytes_initialized();
-        let bytes_filled = self.bytes_filled();
+        let items_init = self.initializer().items_initialized();
+        let items_filled = self.items_filled();
         let total = self.capacity();
 
         if f.alternate() {
-            let init_percentage = bytes_init as f64 / total as f64 * 100.0;
-            let filled_percentage = bytes_filled as f64 / total as f64 * 100.0;
+            let init_percentage = items_init as f64 / total as f64 * 100.0;
+            let filled_percentage = items_filled as f64 / total as f64 * 100.0;
             write!(
                 f,
                 "[buffer at {:?}, {} B filled ({:.1}%), {} B init ({:.1}%), {} B total]",
-                ptr, bytes_filled, filled_percentage, bytes_init, init_percentage, total
+                ptr, items_filled, filled_percentage, items_init, init_percentage, total
             )
         } else {
             write!(
                 f,
                 "[buffer at {:?}, {}/{}/{}]",
-                ptr, bytes_filled, bytes_init, total
+                ptr, items_filled, items_init, total
             )
         }
     }
@@ -538,7 +557,7 @@ mod tests {
         assert!(!buffer.is_full());
         assert!(buffer.initializer().is_completely_uninit());
         assert!(!buffer.initializer().is_completely_init());
-        assert_eq!(buffer.initializer().bytes_initialized(), 0);
+        assert_eq!(buffer.initializer().items_initialized(), 0);
         assert_eq!(buffer.initializer().remaining(), 32);
         assert_eq!(buffer.filled_part(), &[]);
         assert_eq!(buffer.unfilled_part().len(), 32);
@@ -569,7 +588,7 @@ mod tests {
         assert!(!buffer.initializer().is_completely_uninit());
         assert_eq!(buffer.initializer().init_part(), src);
         assert_eq!(buffer.initializer_mut().init_part_mut(), src);
-        assert_eq!(buffer.bytes_filled(), src.len());
+        assert_eq!(buffer.items_filled(), src.len());
         assert_eq!(buffer.remaining(), 32 - src.len());
 
         {
@@ -584,26 +603,26 @@ mod tests {
         assert_eq!(buffer.filled_part_mut(), modified);
         assert_eq!(buffer.initializer().init_part(), modified);
         assert_eq!(buffer.initializer_mut().init_part_mut(), modified);
-        assert_eq!(buffer.bytes_filled(), src.len());
+        assert_eq!(buffer.items_filled(), src.len());
         assert_eq!(buffer.remaining(), 32 - src.len());
         assert_eq!(buffer.unfilled_part().len(), 32 - src.len());
         assert_eq!(unsafe { buffer.unfilled_part_mut().len() }, 32 - src.len());
 
         let mut initializer = buffer.into_initializer();
 
-        assert_eq!(initializer.bytes_initialized(), modified.len());
+        assert_eq!(initializer.items_initialized(), modified.len());
         assert_eq!(initializer.remaining(), 7);
         initializer.partially_fill_uninit_part(3_usize, 0xFF_u8);
         initializer.partially_zero_uninit_part(1_usize);
         assert_eq!(initializer.remaining(), 3);
 
-        let modified_and_garbage_bytes = b"I am a really wise slice!\xFF\xFF\xFF\x00";
+        let modified_and_garbage_items = b"I am a really wise slice!\xFF\xFF\xFF\x00";
         let (init, uninit) = initializer.init_uninit_parts();
-        assert_eq!(init, modified_and_garbage_bytes);
+        assert_eq!(init, modified_and_garbage_items);
         assert_eq!(uninit.len(), 3);
 
         let (init, uninit) = initializer.init_uninit_parts_mut();
-        assert_eq!(init, modified_and_garbage_bytes);
+        assert_eq!(init, modified_and_garbage_items);
         init[2] = b'e';
         assert_eq!(uninit.len(), 3);
 
@@ -627,7 +646,7 @@ mod tests {
         let rest = b" Right?";
         buffer.append(rest);
 
-        assert_eq!(buffer.bytes_filled(), 32);
+        assert_eq!(buffer.items_filled(), 32);
         assert!(!buffer.is_empty());
         assert!(buffer.is_full());
         assert_eq!(buffer.remaining(), 0);
@@ -636,7 +655,7 @@ mod tests {
         assert_eq!(buffer.filled_part(), total);
         assert_eq!(buffer.filled_part_mut(), total);
         assert_eq!(buffer.initializer().remaining(), 0);
-        assert_eq!(buffer.initializer().bytes_initialized(), 32);
+        assert_eq!(buffer.initializer().items_initialized(), 32);
         assert!(buffer.initializer().is_completely_init());
         assert!(!buffer.initializer().is_completely_uninit());
 

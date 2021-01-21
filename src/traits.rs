@@ -15,29 +15,28 @@ use {
 ///
 /// This trait is unsafe to implement since whatever slices are returned from the casts here,
 /// __must have the same length and point to the same memory as before__. This is to allow safer
-/// abstractions to assume that there are has not unexpectedly appeared additional bytes that must
+/// abstractions to assume that there are has not unexpectedly appeared additional items that must
 /// be initialized.
-///
-/// In the future, when `&[u8]` starts implementing `AsRef<[MaybeUninit<u8>]>`, then this
-/// implementation must also ensure that the `AsRef` implementation is correct.
-pub unsafe trait Initialize: Sized {
+pub unsafe trait Initialize {
+    type Item;
+
     /// Retrieve an immutable slice pointing to possibly uninitialized memory. __This must be
     /// exactly the same slice as the one from [`as_maybe_uninit_slice_mut`], or the trait
     /// implementation as a whole, gets incorrect.__
     ///
     /// [`as_maybe_uninit_slice_mut`]: #tymethod.as_maybe_uninit_slice_mut
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>];
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Self::Item>];
 
     /// Retrieve a mutable slice pointing to possibly uninitialized memory. __This must always
     /// point to the same slice as with previous invocations__, and it must be safe to call
-    /// [`assume_init`] when all bytes here are overwritten.
+    /// [`assume_init`] when all items here are overwritten.
     ///
     /// # Safety
     ///
     /// The caller must not use the resulting slice to de-initialize the data.
     ///
     /// [`assume_init`]: #tymethod.assume_init
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>];
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Self::Item>];
 }
 
 /// A trait for slices (or owned memory) that contain possibly uninitialized slices themselves.
@@ -58,10 +57,10 @@ pub unsafe trait Initialize: Sized {
 // requirements. This could perhaps be abstracted, but the best solution would be to use
 // specialization, and maybe negative impls, to remove the possibility of conflict between the two
 // traits.
-pub unsafe trait InitializeVectored: Sized {
+pub unsafe trait InitializeVectored {
     /// The possibly uninitialized vector type, which must implement [`Initialize`], with
     /// [`Self::InitVector`] being the target. Note that this does not necessarily need to deref
-    /// into [`MaybeUninit<u8>`], but can be anything that is convertible to it.
+    /// into [`MaybeUninit<Item>`], but can be anything that is convertible to it.
     type UninitVector: Initialize;
 
     /// Get the uninitialized version of all vectors. This slice must always be exactly equal to
@@ -83,7 +82,7 @@ pub unsafe trait InitializeVectored: Sized {
     /// [`as_maybe_uninit_slice`]: #tymethod.as_maybe_uninit_slice
     unsafe fn as_maybe_uninit_vectors_mut(&mut self) -> &mut [Self::UninitVector];
 }
-pub trait InitializeExt: private2::Sealed + Initialize {
+pub trait InitializeExt: private2::Sealed + Initialize + Sized {
     /// Assume that the type is already initialized. This is equivalent of calling [`Init::new`].
     ///
     /// # Safety
@@ -91,23 +90,6 @@ pub trait InitializeExt: private2::Sealed + Initialize {
     /// The initialization invariant must be upheld for this to be safe.
     unsafe fn assume_init(self) -> AssertInit<Self> {
         AssertInit::new_unchecked(self)
-    }
-    #[inline]
-    fn init_by_filling(mut self, byte: u8) -> AssertInit<Self> {
-        unsafe {
-            crate::fill_uninit_slice(self.as_maybe_uninit_slice_mut(), byte);
-            self.assume_init()
-        }
-    }
-
-    #[inline]
-    fn init_by_copying(mut self, source: &[u8]) -> AssertInit<Self> {
-        unsafe {
-            let slice = self.as_maybe_uninit_slice_mut();
-            assert_eq!(source.len(), slice.len(), "in order to fully initialize a slice-like type, the source slice must be exactly as large");
-            slice.copy_from_slice(crate::cast_init_to_uninit_slice(source));
-            self.assume_init()
-        }
     }
 }
 mod private2 {
@@ -126,23 +108,15 @@ mod private5 {
 impl<T> private2::Sealed for T where T: Initialize {}
 impl<T> InitializeExt for T where T: Initialize {}
 
-unsafe impl<'a> Initialize for &'a mut [u8] {
+unsafe impl<'a, Item> Initialize for &'a mut [MaybeUninit<Item>] {
+    type Item = Item;
+
     #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
-        crate::cast_init_to_uninit_slice(self)
-    }
-    #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        crate::cast_init_to_uninit_slice_mut(self)
-    }
-}
-unsafe impl<'a> Initialize for &'a mut [MaybeUninit<u8>] {
-    #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
         self
     }
     #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
         self
     }
 }
@@ -167,8 +141,8 @@ where
         core::slice::from_mut(self)
     }
 }
-unsafe impl<'a, 'b> InitializeVectored for &'a mut [&'b mut [MaybeUninit<u8>]] {
-    type UninitVector = &'b mut [MaybeUninit<u8>];
+unsafe impl<'a, 'b, Item> InitializeVectored for &'a mut [&'b mut [MaybeUninit<Item>]] {
+    type UninitVector = &'b mut [MaybeUninit<Item>];
 
     fn as_maybe_uninit_vectors(&self) -> &[Self::UninitVector] {
         self
@@ -178,35 +152,24 @@ unsafe impl<'a, 'b> InitializeVectored for &'a mut [&'b mut [MaybeUninit<u8>]] {
     }
 }
 #[cfg(feature = "alloc")]
-unsafe impl Initialize for Box<[u8]> {
+unsafe impl<Item> Initialize for Box<[MaybeUninit<Item>]> {
     #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
-        crate::cast_init_to_uninit_slice(self)
-    }
-    #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        crate::cast_init_to_uninit_slice_mut(self)
-    }
-}
-#[cfg(feature = "alloc")]
-unsafe impl Initialize for Box<[MaybeUninit<u8>]> {
-    #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
         self
     }
     #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
         self
     }
 }
 #[cfg(feature = "alloc")]
-impl From<AssertInit<Box<[MaybeUninit<u8>]>>> for Box<[u8]> {
+impl<Item> From<AssertInit<Box<[MaybeUninit<Item>]>>> for Box<[Item]> {
     #[inline]
-    fn from(init_box: AssertInit<Box<[MaybeUninit<u8>]>>) -> Box<[u8]> {
+    fn from(init_box: AssertInit<Box<[MaybeUninit<Item>]>>) -> Box<[Item]> {
         #[cfg(feature = "nightly")]
         unsafe {
             #[forbid(unconditional_recursion)]
-            Box::<[MaybeUninit<u8>]>::assume_init(init_box.into_inner())
+            Box::<[MaybeUninit<Item>]>::assume_init(init_box.into_inner())
         }
         #[cfg(not(feature = "nightly"))]
         unsafe {
@@ -215,8 +178,9 @@ impl From<AssertInit<Box<[MaybeUninit<u8>]>>> for Box<[u8]> {
         }
     }
 }
+/*
 #[cfg(feature = "alloc")]
-unsafe impl Initialize for Vec<u8> {
+unsafe impl Initialize for Vec<Item> {
     #[inline]
     fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
         crate::cast_init_to_uninit_slice(&*self)
@@ -238,11 +202,11 @@ unsafe impl Initialize for Vec<MaybeUninit<u8>> {
     unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         &mut *self
     }
-}
+}*/
 #[cfg(feature = "alloc")]
-impl From<AssertInit<Vec<MaybeUninit<u8>>>> for Vec<u8> {
+impl<Item> From<AssertInit<Vec<MaybeUninit<Item>>>> for Vec<Item> {
     #[inline]
-    fn from(init_vec: AssertInit<Vec<MaybeUninit<u8>>>) -> Vec<u8> {
+    fn from(init_vec: AssertInit<Vec<MaybeUninit<Item>>>) -> Vec<Item> {
         unsafe {
             let mut vec = init_vec.into_inner();
             //let (ptr, cap, len) = Vec::into_raw_parts(self);
@@ -257,45 +221,34 @@ impl From<AssertInit<Vec<MaybeUninit<u8>>>> for Vec<u8> {
                 (ptr, cap, len)
             };
 
-            Vec::from_raw_parts(ptr as *mut u8, cap, len)
+            Vec::from_raw_parts(ptr as *mut Item, cap, len)
         }
     }
 }
 #[cfg(feature = "nightly")]
-unsafe impl<const N: usize> Initialize for [u8; N] {
+unsafe impl<Item, const N: usize> Initialize for [MaybeUninit<Item>; N] {
     #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
-        crate::cast_init_to_uninit_slice(&*self)
-    }
-    #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        crate::cast_init_to_uninit_slice_mut(&mut *self)
-    }
-}
-#[cfg(feature = "nightly")]
-unsafe impl<const N: usize> Initialize for [MaybeUninit<u8>; N] {
-    #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
         self
     }
     #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
         self
     }
 }
 #[cfg(feature = "nightly")]
-impl<const N: usize> From<AssertInit<[MaybeUninit<u8>; N]>> for [u8; N] {
+impl<const N: usize> From<AssertInit<[MaybeUninit<Item>; N]>> for [Item; N] {
     #[inline]
-    fn from(init: AssertInit<[MaybeUninit<u8>; N]>) -> [u8; N] {
+    fn from(init: AssertInit<[MaybeUninit<Item>; N]>) -> [Item; N] {
         unsafe {
-            // SAFETY: This is safe, since [u8; N] and [MaybeUninit<u8>; N] are guaranteed to have the
-            // exact same layouts, making them interchangable except for the initialization invariant,
-            // which the caller must uphold.
+            // SAFETY: This is safe, since [Item; N] and [MaybeUninit<Item>; N] are guaranteed to
+            // have the exact same layouts, making them interchangable except for the
+            // initialization invariant, which the caller must uphold.
 
             // XXX: This should ideally work. See issue https://github.com/rust-lang/rust/issues/61956
             // for more information.
             //
-            // core::mem::transmute::<[MaybeUninit<u8>; N], [u8; N]>(self)
+            // core::mem::transmute::<[MaybeUninit<Item>; N], [Item; N]>(self)
             //
             // ... but, we'll have to rely on transmute_copy, which is more dangerous and requires the
             // original type to be dropped. We have no choice. Hopefully the optimizer will understand
@@ -315,29 +268,21 @@ mod for_arrays {
 
     macro_rules! impl_initialize_for_size(
         ($size:literal) => {
-            unsafe impl Initialize for [u8; $size] {
+            unsafe impl<Item> Initialize for [MaybeUninit<Item>; $size] {
+                type Item = Item;
+
                 #[inline]
-                fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
-                    crate::cast_init_to_uninit_slice(&*self)
-                }
-                #[inline]
-                unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-                    crate::cast_init_to_uninit_slice_mut(&mut *self)
-                }
-            }
-            unsafe impl Initialize for [MaybeUninit<u8>; $size] {
-                #[inline]
-                fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<u8>] {
+                fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
                     &*self
                 }
                 #[inline]
-                unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+                unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
                     &mut *self
                 }
             }
-            impl From<AssertInit<[MaybeUninit<u8>; $size]>> for [u8; $size] {
+            impl<Item> From<AssertInit<[MaybeUninit<Item>; $size]>> for [Item; $size] {
                 #[inline]
-                fn from(init_array: AssertInit<[MaybeUninit<u8>; $size]>) -> [u8; $size] {
+                fn from(init_array: AssertInit<[MaybeUninit<Item>; $size]>) -> [Item; $size] {
                     unsafe {
                         // SAFETY: Refer to assume_init for the const generics-based version of this
                         // impl..
