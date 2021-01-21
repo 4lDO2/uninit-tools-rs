@@ -3,10 +3,7 @@ use core::mem::MaybeUninit;
 use crate::wrappers::AssertInit;
 
 #[cfg(feature = "alloc")]
-use {
-    alloc::boxed::Box,
-    alloc::vec::Vec,
-};
+use {alloc::boxed::Box, alloc::vec::Vec};
 
 /// A trait for mutable initializable slices, that provide access to all the data required for
 /// initialization, before the data can be assumed to be fully initialized.
@@ -24,18 +21,15 @@ pub unsafe trait Initialize {
     /// exactly the same slice as the one from [`as_maybe_uninit_slice_mut`], or the trait
     /// implementation as a whole, gets incorrect.__
     ///
-    /// [`as_maybe_uninit_slice_mut`]: #tymethod.as_maybe_uninit_slice_mut
+    /// [`as_maybe_uninit_slice_mut`]: Self::as_maybe_uninit_slice_mut
     fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Self::Item>];
 
     /// Retrieve a mutable slice pointing to possibly uninitialized memory. __This must always
-    /// point to the same slice as with previous invocations__, and it must be safe to call
-    /// [`assume_init`] when all items here are overwritten.
+    /// point to the same slice as with previous invocations__.
     ///
     /// # Safety
     ///
     /// The caller must not use the resulting slice to de-initialize the data.
-    ///
-    /// [`assume_init`]: #tymethod.assume_init
     unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Self::Item>];
 }
 
@@ -44,33 +38,26 @@ pub unsafe trait Initialize {
 ///
 /// # Safety
 ///
-/// For this trait to be implemented correctly, [`as_maybe_uninit_slice`] and
-/// [`as_maybe_uninit_slice_mut`] must always return the same slices (albeit with different
-/// aliasing rules as they take `&self` and `&mut self` respectively). Additionally, the
-/// [`assume_init_all`] method must assume initializedness of exactly these slices.
+/// For this trait to be implemented correctly, [`as_maybe_uninit_vectors`] and
+/// [`as_maybe_uninit_vectors_mut`] must always return the same slices (albeit with different
+/// aliasing rules as they take `&self` and `&mut self` respectively).
 ///
-/// [`assume_init_all`]: #tymethod.assume_init_all
-/// [`as_maybe_uninit_slice`]: #tymethod.as_maybe_uninit_slice
-/// [`as_maybe_uninit_slice_mut`]: #tymethod.as_maybe_uninit_slice_mut
-// XXX: It would be __really__ useful to be able to unify the InitializeIndirectExt and
-// InitializeExt traits, since they provide an identical interface, but with different
-// requirements. This could perhaps be abstracted, but the best solution would be to use
-// specialization, and maybe negative impls, to remove the possibility of conflict between the two
-// traits.
+/// [`as_maybe_uninit_vectors`]: InitializeVectored::as_maybe_uninit_vectors
+/// [`as_maybe_uninit_vectors_mut`]: InitializeVectored::as_maybe_uninit_vectors_mut
 pub unsafe trait InitializeVectored {
-    /// The possibly uninitialized vector type, which must implement [`Initialize`], with
-    /// [`Self::InitVector`] being the target. Note that this does not necessarily need to deref
-    /// into [`MaybeUninit<Item>`], but can be anything that is convertible to it.
+    /// The possibly uninitialized vector type, which must implement [`Initialize`]. Note that this
+    /// does not necessarily need to deref into [`MaybeUninit<Item>`], but can be anything that is
+    /// convertible to it.
     type UninitVector: Initialize;
 
     /// Get the uninitialized version of all vectors. This slice must always be exactly equal to
-    /// the slice returned by [`as_maybe_uninit_slice_mut`], or the trait is unsoundly implemented.
+    /// the slice returned by [`as_maybe_uninit_vectors`], or the trait is unsoundly implemented.
     ///
-    /// [`as_maybe_uninit_slice_mut`]: #tymethod.as_maybe_uninit_slice_mut
+    /// [`as_maybe_uninit_slice_mut`]: InitializeVectored::as_maybe_uninit_slice_mut
     fn as_maybe_uninit_vectors(&self) -> &[Self::UninitVector];
 
     /// Get the uninitialized version of all vectors, mutably. This slice must always be exactly
-    /// equal to the slice returned by [`as_maybe_uninit_slice`], or the trait is unsoundly
+    /// equal to the slice returned by [`as_maybe_uninit_vectors`], or the trait is unsoundly
     /// implemented.
     ///
     /// # Safety
@@ -79,11 +66,12 @@ pub unsafe trait InitializeVectored {
     /// used to de-initialize the vectors by overwriting their contents with
     /// [`MaybeUninit::uninit`] if they were already initialized.
     ///
-    /// [`as_maybe_uninit_slice`]: #tymethod.as_maybe_uninit_slice
+    /// [`as_maybe_uninit_slice`]: InitializeVectored::as_maybe_uninit_slice
     unsafe fn as_maybe_uninit_vectors_mut(&mut self) -> &mut [Self::UninitVector];
 }
 pub trait InitializeExt: private2::Sealed + Initialize + Sized {
-    /// Assume that the type is already initialized. This is equivalent of calling [`Init::new`].
+    /// Assume that the type is already initialized. This is equivalent of calling
+    /// [`AssertInit::new_unchecked`].
     ///
     /// # Safety
     ///
@@ -242,9 +230,7 @@ unsafe impl<Item, const N: usize> Initialize for [MaybeUninit<Item>; N] {
 impl<Item, const N: usize> From<AssertInit<[MaybeUninit<Item>; N]>> for [Item; N] {
     #[inline]
     fn from(init: AssertInit<[MaybeUninit<Item>; N]>) -> [Item; N] {
-        unsafe {
-            MaybeUninit::array_assume_init(init.into_inner())
-        }
+        unsafe { MaybeUninit::array_assume_init(init.into_inner()) }
     }
 }
 

@@ -298,11 +298,10 @@ where
     /// For the current vector, return the unfilled and initialized part, the unfilled but
     /// initialized part, and the unfilled and uninitialized part, in that order.
     ///
-    /// Note that unlike [`current_vector_all_mut`], the exclusive aliasing rules that come with
-    /// mutable references are not needed here. The same result as calling this can be achieved by
-    /// calling the finer-grained methods that access the individual parts of the current vector.
-    ///
-    /// [`current_vector_all_mut`]: #method.current_vector_all_mut
+    /// Note that unlike [`current_vector_all_mut`](Self::current_vector_all_mut), the exclusive
+    /// aliasing rules that come with mutable references are not needed here. The same result as
+    /// calling this can be achieved by calling the finer-grained methods that access the
+    /// individual parts of the current vector.
     // FIXME: which ones?
     pub fn current_vector_parts(&self) -> Option<VectorParts<'_, Item>> {
         self.debug_assert_validity();
@@ -526,7 +525,10 @@ where
     T: Initialize,
 {
     pub fn from_single_buffer(buffer: Buffer<T>) -> Self {
-        let Buffer { initializer, items_filled } = buffer;
+        let Buffer {
+            initializer,
+            items_filled,
+        } = buffer;
 
         Self {
             initializer: BuffersInitializer::from_single_buffer_initializer(initializer),

@@ -204,7 +204,8 @@ impl<T> Eq for AssertInit<T>
 where
     T: Initialize,
     T::Item: Eq,
-{}
+{
+}
 impl<T> PartialOrd for AssertInit<T>
 where
     T: Initialize,
@@ -239,9 +240,7 @@ pub struct AssertInitVectors<I> {
 }
 impl<I> AssertInitVectors<I> {
     pub const unsafe fn new_unchecked(inner: I) -> Self {
-        Self {
-            inner,
-        }
+        Self { inner }
     }
     #[inline]
     pub fn into_inner(self) -> I {

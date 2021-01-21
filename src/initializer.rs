@@ -1,7 +1,7 @@
 use core::mem::MaybeUninit;
 
 use crate::traits::{Initialize, InitializeExt as _, InitializeVectored};
-use crate::wrappers::{AssertInit, AssertInitVectors, AsUninit, SingleVector};
+use crate::wrappers::{AsUninit, AssertInit, AssertInitVectors, SingleVector};
 
 /// An initialized tracking a container type that dereferences into a slice of
 /// possibly-uninitialized items, and how many items have been initialized, respectively. The inner
@@ -78,9 +78,7 @@ where
     /// initialization offset, are initialized.
     ///
     /// This method does not do any bounds checking. Ergo, `count` can never be larger than
-    /// the value returned by [`remaining`].
-    ///
-    /// [`remaining`]: #method.remaining
+    /// the value returned by [`remaining`](Self::remaining).
     #[inline]
     pub unsafe fn advance(&mut self, count: usize) {
         self.items_initialized += count;
@@ -90,9 +88,7 @@ where
     /// # Safety
     ///
     /// While this eliminates the need for the caller to bounds check manually, unlike with
-    /// [`advance`], the caller must uphold the initialization invariant.
-    ///
-    /// [`advance`]: #method.advance
+    /// [`advance`](Self::advance), the caller must uphold the initialization invariant.
     #[inline]
     pub unsafe fn advance_to_end(&mut self) {
         self.items_initialized = self.all_uninit().len();
@@ -423,7 +419,10 @@ impl<T> BuffersInitializer<T> {
 }
 impl<T> BuffersInitializer<SingleVector<T>> {
     pub fn from_single_buffer_initializer(single: BufferInitializer<T>) -> Self {
-        let BufferInitializer { items_initialized, inner } = single;
+        let BufferInitializer {
+            items_initialized,
+            inner,
+        } = single;
 
         Self {
             items_initialized_for_vector: items_initialized,

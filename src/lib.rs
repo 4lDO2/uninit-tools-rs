@@ -67,10 +67,9 @@ pub unsafe fn cast_init_to_uninit_slice_mut<U>(init: &mut [U]) -> &mut [MaybeUni
 ///
 /// For this to be safe, the initialization invariant must be upheld, exactly like when reading.
 ///
-/// __NOTE: This must not be used for initializing the buffer__. For that, there are are other safe
-/// methods like [`InitializeExt::init_by_filling`] and [`InitializeExt::init_by_copying`]. If
-/// unsafe code is still somehow, always initialize this by copying from _another_ MaybeUninit
-/// slice, or using [`std::ptr::copy`] or [`std::ptr::copy_nonoverlapping`].
+/// __NOTE: This must not be used for initializing the buffer__. If unsafe code is still somehow,
+/// always initialize this by copying from _another_ MaybeUninit slice, or using [`std::ptr::copy`]
+/// or [`std::ptr::copy_nonoverlapping`].
 #[inline]
 pub unsafe fn cast_uninit_to_init_slice_mut<U>(uninit: &mut [MaybeUninit<U>]) -> &mut [U] {
     cast_slice_same_layout_mut(uninit)

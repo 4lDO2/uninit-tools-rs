@@ -1,6 +1,6 @@
 //! Buffers for single-buffer and vectored I/O which tracking initializedness and how much has been
 //! filled. Container types pointing to possibly-uninitialized memory such as
-//! `Vec<MaybeUninit<Item>>`, `IoBox<Uninitialized>`, or `Box<[MaybeUninit<Item>]> can be
+//! `Vec<MaybeUninit<Item>>`, `IoBox<Uninitialized>`, or `Box<[MaybeUninit<Item>]>` can be
 //! transformed into their initialized variants via the [`Initialize`] trait, within requiring
 //! unsafe code.
 //!
@@ -39,10 +39,8 @@ impl<T> Buffer<T> {
             items_filled: 0,
         }
     }
-    /// Create a new buffer, defaulting to not being initialized, nor filled. Prefer [`new_init`]
-    /// if the buffer is already initialized.
-    ///
-    /// [`new_init`]: #method.new_init
+    /// Create a new buffer, defaulting to not being initialized, nor filled. Prefer
+    /// [`new`](Buffer::new) if the buffer is already initialized.
     pub const fn uninit(inner: T) -> Self {
         Self::from_initializer(BufferInitializer::uninit(inner))
     }
@@ -94,6 +92,14 @@ impl<T> Buffer<T> {
     #[inline]
     pub fn initializer_mut(&mut self) -> &mut BufferInitializer<T> {
         &mut self.initializer
+    }
+}
+impl<T> Buffer<AsUninit<T>>
+where
+    T: core::ops::Deref + core::ops::DerefMut,
+{
+    pub fn new(init: T) -> Self {
+        Self::from_initializer(BufferInitializer::new(init))
     }
 }
 
@@ -180,16 +186,13 @@ where
     /// is unfilled, the caller must ensure that the resulting slice is never used to deinitialize
     /// the buffer.
     ///
-    /// It is thus recommended to use [`append`] or [`fill_by_repeating`] instead, since those are
-    /// the by far most common operations to do when initializing. However, code that requires
-    /// interfacing with other APIs such as system calls, need to use this function.
+    /// It is thus recommended to use [`append`](Self::append) or
+    /// [`fill_by_repeating`](Self::fill_by_repeating) instead, since those are the by far most
+    /// common operations to do when initializing. However, code that requires interfacing with
+    /// other APIs such as system calls, need to use this function.
     ///
     /// If mutable access really is needed for the unfilled region in safe code, consider using
-    /// [`unfilled_init_uninit_parts_mut`].
-    ///
-    /// [`append`]: #method.append
-    /// [`fill_by_repeating`]: #method.fill_by_repeating
-    /// [`unfilled_init_uninit_parts_mut`]: #method.unfilled_init_uninit_parts_mut
+    /// [`all_parts_mut`](Self::all_parts_mut).
     #[inline]
     pub unsafe fn unfilled_part_mut(&mut self) -> &mut [MaybeUninit<T::Item>] {
         let (orig_ptr, orig_len) = {
@@ -221,7 +224,9 @@ where
     }
 
     #[inline]
-    pub fn all_parts_mut(&mut self) -> (&mut [T::Item], &mut [T::Item], &mut [MaybeUninit<T::Item>]) {
+    pub fn all_parts_mut(
+        &mut self,
+    ) -> (&mut [T::Item], &mut [T::Item], &mut [MaybeUninit<T::Item>]) {
         let (all_ptr, all_len) = unsafe {
             let all = self.initializer.all_uninit_mut();
 
@@ -261,7 +266,9 @@ where
     /// It is hence the responsibility of the caller to ensure that the buffer is not deinitialized
     /// by writing [`MaybeUninit::uninit()`] to it.
     #[inline]
-    pub unsafe fn filled_unfilled_parts_mut(&mut self) -> (&mut [T::Item], &mut [MaybeUninit<T::Item>]) {
+    pub unsafe fn filled_unfilled_parts_mut(
+        &mut self,
+    ) -> (&mut [T::Item], &mut [MaybeUninit<T::Item>]) {
         let (all_ptr, all_len) = {
             let all = self.initializer.all_uninit_mut();
 
