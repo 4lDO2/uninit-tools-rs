@@ -96,15 +96,15 @@ mod private5 {
 impl<T> private2::Sealed for T where T: Initialize {}
 impl<T> InitializeExt for T where T: Initialize {}
 
-unsafe impl<'a, Item> Initialize for &'a mut [MaybeUninit<Item>] {
-    type Item = Item;
+unsafe impl<'a, T> Initialize for &'a mut [MaybeUninit<T>] {
+    type Item = T;
 
     #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<T>] {
         self
     }
     #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<T>] {
         self
     }
 }
@@ -129,8 +129,8 @@ where
         core::slice::from_mut(self)
     }
 }
-unsafe impl<'a, 'b, Item> InitializeVectored for &'a mut [&'b mut [MaybeUninit<Item>]] {
-    type UninitVector = &'b mut [MaybeUninit<Item>];
+unsafe impl<'a, 'b, T> InitializeVectored for &'a mut [&'b mut [MaybeUninit<T>]] {
+    type UninitVector = &'b mut [MaybeUninit<T>];
 
     fn as_maybe_uninit_vectors(&self) -> &[Self::UninitVector] {
         self
@@ -140,24 +140,26 @@ unsafe impl<'a, 'b, Item> InitializeVectored for &'a mut [&'b mut [MaybeUninit<I
     }
 }
 #[cfg(feature = "alloc")]
-unsafe impl<Item> Initialize for Box<[MaybeUninit<Item>]> {
+unsafe impl<T> Initialize for Box<[MaybeUninit<T>]> {
+    type Item = T;
+
     #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<T>] {
         self
     }
     #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<T>] {
         self
     }
 }
 #[cfg(feature = "alloc")]
-impl<Item> From<AssertInit<Box<[MaybeUninit<Item>]>>> for Box<[Item]> {
+impl<T> From<AssertInit<Box<[MaybeUninit<T>]>>> for Box<[T]> {
     #[inline]
-    fn from(init_box: AssertInit<Box<[MaybeUninit<Item>]>>) -> Box<[Item]> {
+    fn from(init_box: AssertInit<Box<[MaybeUninit<T>]>>) -> Box<[T]> {
         #[cfg(feature = "nightly")]
         unsafe {
             #[forbid(unconditional_recursion)]
-            Box::<[MaybeUninit<Item>]>::assume_init(init_box.into_inner())
+            Box::<[MaybeUninit<T>]>::assume_init(init_box.into_inner())
         }
         #[cfg(not(feature = "nightly"))]
         unsafe {
@@ -192,9 +194,9 @@ unsafe impl Initialize for Vec<MaybeUninit<u8>> {
     }
 }*/
 #[cfg(feature = "alloc")]
-impl<Item> From<AssertInit<Vec<MaybeUninit<Item>>>> for Vec<Item> {
+impl<T> From<AssertInit<Vec<MaybeUninit<T>>>> for Vec<T> {
     #[inline]
-    fn from(init_vec: AssertInit<Vec<MaybeUninit<Item>>>) -> Vec<Item> {
+    fn from(init_vec: AssertInit<Vec<MaybeUninit<T>>>) -> Vec<T> {
         unsafe {
             let mut vec = init_vec.into_inner();
             //let (ptr, cap, len) = Vec::into_raw_parts(self);
@@ -209,27 +211,27 @@ impl<Item> From<AssertInit<Vec<MaybeUninit<Item>>>> for Vec<Item> {
                 (ptr, cap, len)
             };
 
-            Vec::from_raw_parts(ptr as *mut Item, cap, len)
+            Vec::from_raw_parts(ptr as *mut T, cap, len)
         }
     }
 }
 #[cfg(feature = "nightly")]
-unsafe impl<Item, const N: usize> Initialize for [MaybeUninit<Item>; N] {
-    type Item = Item;
+unsafe impl<T, const N: usize> Initialize for [MaybeUninit<T>; N] {
+    type Item = T;
 
     #[inline]
-    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<T>] {
         self
     }
     #[inline]
-    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<T>] {
         self
     }
 }
 #[cfg(feature = "nightly")]
-impl<Item, const N: usize> From<AssertInit<[MaybeUninit<Item>; N]>> for [Item; N] {
+impl<T, const N: usize> From<AssertInit<[MaybeUninit<T>; N]>> for [T; N] {
     #[inline]
-    fn from(init: AssertInit<[MaybeUninit<Item>; N]>) -> [Item; N] {
+    fn from(init: AssertInit<[MaybeUninit<T>; N]>) -> [T; N] {
         unsafe { MaybeUninit::array_assume_init(init.into_inner()) }
     }
 }
