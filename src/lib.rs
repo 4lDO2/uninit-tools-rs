@@ -1,3 +1,75 @@
+//!
+//! # Examples
+//!
+//! ## A `Read`-like trait implemented to better support uninitialized memory.
+//! ```
+//! # use std::io;
+//!
+//! use std::mem::MaybeUninit;
+//!
+//! use uninit_tools::buffer::{Buffer, BufferRef};
+//! use uninit_tools::traits::Initialize;
+//! # // TODO: Add more safe abstractions for slices of I/O slices.
+//!
+//! pub trait MyRead {
+//!     // NOTE: The function does not return any count, since the buffer keeps track of that.
+//!     //
+//!     // Rather than using `&mut Buffer<T>` directly, we use `BufferRef<'_, T>` to prevent the
+//!     // caller from replacing the buffer that is being filled with something different. It also
+//!     // gives the `Read` implementor a reduced subset of the functionality, to that it cannot
+//!     // for example read the bytes that are already written into the buffer.
+//!     fn read<'buffer, T>(&mut self, buffer: BufferRef<'buffer, T>) -> io::Result<()>
+//!     where
+//!         T: Initialize<Item = u8>,
+//!     ;
+//! }
+//!
+//! impl MyRead for &[u8] {
+//!     fn read<'buffer, T>(&mut self, mut buffer: BufferRef<'buffer, T>) -> io::Result<()>
+//!     where
+//!         T: Initialize<Item = u8>,
+//!     {
+//!         // Get the minimum number of bytes to copy. Note that it will panic if the source slice
+//!         // were to overflow, as with the regular `copy_from_slice` function for regular slices.
+//!         let min = std::cmp::min(self.len(), buffer.remaining());
+//!
+//!         // Advance the buffer by simply copying the source slice.
+//!         buffer.append(&self[..min]);
+//!
+//!         Ok(())
+//!     }
+//! }
+//!
+//! # fn main() -> io::Result<()> {
+//!
+//! // NOTE: The `Initialize` trait is only implemented for array sizes ranging from 0 to
+//! // (including) 32, unless the `nightly` feature is enabled, which uses `min_const_generics`.
+//! let array = [MaybeUninit::uninit(); 32];
+//! let len = array.len();
+//! let mut buf = Buffer::uninit(array);
+//!
+//! let original_stupid_text: &[u8] = b"copying is expensive!";
+//! let mut stupid_text = original_stupid_text;
+//!
+//! // Read as many bytes as possible.
+//! stupid_text.read(buf.by_ref())?;
+//!
+//! // Note that while we cannot do anything useful with the rest of the buffer, we can still use
+//! // it as the destination of even more I/O, or simply check its length like we do here.
+//! assert_eq!(buf.remaining(), len - original_stupid_text.len());
+//!
+//! # Ok(())
+//!
+//! # }
+//!
+//! ```
+//!
+//! Note that this may not be the best implementation of the `Read` trait, but it does show that
+//! uninitialized memory handling can be done entirely in safe code, being moderately ergonomic.
+//!
+//! (If this would be incorporated into `std::io::Read`, there would probably be a simpler unsafe
+//! function, that defaults to the safer wrapper.)
+
 #![cfg_attr(feature = "nightly", feature(maybe_uninit_array_assume_init))]
 use core::mem::MaybeUninit;
 
