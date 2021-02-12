@@ -70,7 +70,7 @@
 //! (If this would be incorporated into `std::io::Read`, there would probably be a simpler unsafe
 //! function, that defaults to the safer wrapper.)
 
-#![cfg_attr(feature = "nightly", feature(maybe_uninit_array_assume_init))]
+#![cfg_attr(feature = "nightly", feature(maybe_uninit_array_assume_init, new_uninit))]
 use core::mem::MaybeUninit;
 
 pub mod buffer;
@@ -78,6 +78,12 @@ pub mod buffers;
 pub mod initializer;
 pub mod traits;
 pub mod wrappers;
+
+#[cfg(feature = "ioslice")]
+extern crate ioslice_ as ioslice;
+
+#[cfg(feature = "ioslice")]
+mod ioslice_impls;
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -152,18 +158,7 @@ pub unsafe fn cast_uninit_to_init_slice_mut<U>(uninit: &mut [MaybeUninit<U>]) ->
 #[inline]
 pub fn fill_uninit_slice<U: Copy>(slice: &mut [MaybeUninit<U>], item: U) -> &mut [U] {
     unsafe {
-        // NOTE: This is solely to allow for any improved optimizations nightly may offer; we all
-        // know that memset most likely is faster (and cleaner) than a loop.
-        #[cfg(feature = "nightly")]
-        {
-            slice.fill(MaybeUninit::new(item));
-        }
-
-        #[cfg(not(feature = "nightly"))]
-        for slice_byte in slice.iter_mut() {
-            *slice_byte = MaybeUninit::new(item);
-        }
-
+        slice.fill(MaybeUninit::new(item));
         cast_uninit_to_init_slice_mut(slice)
     }
 }

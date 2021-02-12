@@ -12,4 +12,8 @@ std = ["alloc"]
 alloc = []
 nightly = []
 
+ioslice = ["ioslice_"]
+ioslice-iobox = ["ioslice", "ioslice_/alloc"]
+
 [dependencies]
+ioslice_ = { package = "ioslice", version = "0.6", path = "../ioslice", optional = true }
