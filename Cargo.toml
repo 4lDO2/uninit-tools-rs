@@ -16,4 +16,4 @@ ioslice = ["ioslice_"]
 ioslice-iobox = ["ioslice", "ioslice_/alloc"]
 
 [dependencies]
-ioslice_ = { package = "ioslice", version = "0.6", path = "../ioslice", optional = true }
+ioslice_ = { package = "ioslice", version = "0.6.0-alpha.0", path = "../ioslice", optional = true }
