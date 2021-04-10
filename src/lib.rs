@@ -42,8 +42,8 @@
 //!
 //! # fn main() -> io::Result<()> {
 //!
-//! // NOTE: The `Initialize` trait is only implemented for array sizes ranging from 0 to
-//! // (including) 32, unless the `nightly` feature is enabled, which uses `min_const_generics`.
+//! // NOTE: The `Initialize` trait is implemented for arrays of all sizes, thanks to const
+//! // generics.
 //! let array = [MaybeUninit::uninit(); 32];
 //! let len = array.len();
 //! let mut buf = Buffer::uninit(array);

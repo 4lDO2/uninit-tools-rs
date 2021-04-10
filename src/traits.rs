@@ -51,14 +51,16 @@ pub unsafe trait InitializeVectored {
     type UninitVector: Initialize;
 
     /// Get the uninitialized version of all vectors. This slice must always be exactly equal to
-    /// the slice returned by [`as_maybe_uninit_vectors`], or the trait is unsoundly implemented.
+    /// the slice returned by
+    /// [`as_maybe_uninit_vectors_mut`](InitializeVectored::as_maybe_uninit_vectors_mut), except
+    /// being borrowed differently, or the trait is unsoundly implemented.
     ///
     /// [`as_maybe_uninit_slice_mut`]: InitializeVectored::as_maybe_uninit_slice_mut
     fn as_maybe_uninit_vectors(&self) -> &[Self::UninitVector];
 
     /// Get the uninitialized version of all vectors, mutably. This slice must always be exactly
-    /// equal to the slice returned by [`as_maybe_uninit_vectors`], or the trait is unsoundly
-    /// implemented.
+    /// equal to the slice returned by [`as_maybe_uninit_vectors`](Self::as_maybe_uninit_vectors),
+    /// or the trait is unsoundly implemented.
     ///
     /// # Safety
     ///
@@ -215,7 +217,6 @@ impl<T> From<AssertInit<Vec<MaybeUninit<T>>>> for Vec<T> {
         }
     }
 }
-#[cfg(feature = "nightly")]
 unsafe impl<T, const N: usize> Initialize for [MaybeUninit<T>; N] {
     type Item = T;
 
@@ -228,70 +229,18 @@ unsafe impl<T, const N: usize> Initialize for [MaybeUninit<T>; N] {
         self
     }
 }
-#[cfg(feature = "nightly")]
 impl<T, const N: usize> From<AssertInit<[MaybeUninit<T>; N]>> for [T; N] {
     #[inline]
     fn from(init: AssertInit<[MaybeUninit<T>; N]>) -> [T; N] {
-        unsafe { MaybeUninit::array_assume_init(init.into_inner()) }
+        #[cfg(feature = "nightly")]
+        unsafe {
+            MaybeUninit::array_assume_init(init.into_inner())
+        }
+        #[cfg(not(feature = "nightly"))]
+        unsafe {
+            let inner = init.into_inner();
+            let init: [T; N] = core::mem::transmute_copy(&inner);
+            init
+        }
     }
-}
-
-#[cfg(not(feature = "nightly"))]
-mod for_arrays {
-    use super::*;
-
-    macro_rules! impl_initialize_for_size(
-        ($size:literal) => {
-            unsafe impl<Item> Initialize for [MaybeUninit<Item>; $size] {
-                type Item = Item;
-
-                #[inline]
-                fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
-                    &*self
-                }
-                #[inline]
-                unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
-                    &mut *self
-                }
-            }
-            impl<Item> From<AssertInit<[MaybeUninit<Item>; $size]>> for [Item; $size] {
-                #[inline]
-                fn from(init_array: AssertInit<[MaybeUninit<Item>; $size]>) -> [Item; $size] {
-                    // SAFETY: This is safe, since [Item; N] and [MaybeUninit<Item>; N] are
-                    // guaranteed to have the exact same layouts, making them interchangable except
-                    // for the initialization invariant, which the caller must uphold. Regarding
-                    // validity and the fact that some types forbid aliasing (for example, we
-                    // cannot have multiple `Box`es pointing to the same memory), this is also not
-                    // an issue, since any rules regarding bit pattern is only followed for `init`.
-
-                    // XXX: This should ideally work. See issue
-                    // https://github.com/rust-lang/rust/issues/61956 for more information.
-                    //
-                    // core::mem::transmute::<[MaybeUninit<Item>; N], [Item; N]>(self)
-                    //
-                    // ... but, we'll have to rely on transmute_copy, which is more dangerous and
-                    // requires the original type to be dropped. We have no choice. Hopefully the
-                    // optimizer will understand this as well as it understands the regular
-                    // transmute.
-                    unsafe {
-                        let inner = init_array.into_inner();
-                        let init = core::mem::transmute_copy(&inner);
-                        core::mem::forget(inner);
-                        init
-                    }
-                }
-            }
-        }
-    );
-    macro_rules! impl_initialize_for_sizes(
-        [$($size:literal),*] => {
-            $(
-                impl_initialize_for_size!($size);
-            )*
-        }
-    );
-    impl_initialize_for_sizes![
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-        25, 26, 27, 28, 29, 30, 31, 32
-    ];
 }
