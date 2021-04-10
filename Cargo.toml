@@ -7,6 +7,7 @@ license = "MIT"
 description = "A crate that allows working with uninitialized memory entirely in safe code"
 repository = "https://github.com/4lDO2/uninit-tools-rs"
 documentation = "https://docs.rs/uninit-tools"
+exclude = ["target"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
