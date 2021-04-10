@@ -30,6 +30,19 @@ pub struct BufferRef<'buffer, T> {
     inner: &'buffer mut Buffer<T>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct BufferParts<'a, I> {
+    pub filled_part: &'a [I],
+    pub unfilled_init_part: &'a [I],
+    pub unfilled_uninit_part: &'a [MaybeUninit<I>],
+}
+#[derive(Debug)]
+pub struct BufferPartsMut<'a, I> {
+    pub filled_part: &'a mut [I],
+    pub unfilled_init_part: &'a mut [I],
+    pub unfilled_uninit_part: &'a mut [MaybeUninit<I>],
+}
+
 impl<T> Buffer<T> {
     /// Create a new buffer from an initializer.
     #[inline]
@@ -215,18 +228,18 @@ where
     /// Borrow the filled part, the unfilled but initialized part, and the unfilled and
     /// uninitialized part.
     #[inline]
-    pub fn all_parts(&self) -> (&[T::Item], &[T::Item], &[MaybeUninit<T::Item>]) {
-        (
-            self.filled_part(),
-            self.unfilled_init_part(),
-            self.unfilled_uninit_part(),
-        )
+    pub fn all_parts(&self) -> BufferParts<'_, T::Item> {
+        BufferParts {
+            filled_part: self.filled_part(),
+            unfilled_init_part: self.unfilled_init_part(),
+            unfilled_uninit_part: self.unfilled_uninit_part(),
+        }
     }
 
     #[inline]
     pub fn all_parts_mut(
         &mut self,
-    ) -> (&mut [T::Item], &mut [T::Item], &mut [MaybeUninit<T::Item>]) {
+    ) -> BufferPartsMut<'_, T::Item> {
         let (all_ptr, all_len) = unsafe {
             let all = self.initializer.all_uninit_mut();
 
@@ -248,13 +261,17 @@ where
             let unfilled_uninit_base_ptr = all_ptr.add(self.initializer.items_initialized());
             let unfilled_uninit_len = all_len.wrapping_sub(self.initializer.items_initialized());
 
-            let filled = core::slice::from_raw_parts_mut(filled_base_ptr, filled_len);
-            let unfilled_init =
+            let filled_part = core::slice::from_raw_parts_mut(filled_base_ptr, filled_len);
+            let unfilled_init_part =
                 core::slice::from_raw_parts_mut(unfilled_init_base_ptr, unfilled_init_len);
-            let unfilled_uninit =
+            let unfilled_uninit_part =
                 core::slice::from_raw_parts_mut(unfilled_uninit_base_ptr, unfilled_uninit_len);
 
-            (filled, unfilled_init, unfilled_uninit)
+            BufferPartsMut {
+                filled_part,
+                unfilled_init_part,
+                unfilled_uninit_part,
+            }
         }
     }
 
@@ -312,9 +329,9 @@ where
     /// Get the initialized part of the unfilled part, if there is any.
     #[inline]
     pub fn unfilled_init_part_mut(&mut self) -> &mut [T::Item] {
-        let (_, unfilled_init, _) = self.all_parts_mut();
+        let BufferPartsMut { unfilled_init_part, .. } = self.all_parts_mut();
 
-        unfilled_init
+        unfilled_init_part
     }
     #[inline]
     pub fn unfilled_uninit_part(&self) -> &[MaybeUninit<T::Item>] {
@@ -328,15 +345,15 @@ where
 
     #[inline]
     pub fn unfilled_parts(&mut self) -> (&[T::Item], &[MaybeUninit<T::Item>]) {
-        let (_, init, uninit) = self.all_parts();
+        let BufferParts { unfilled_init_part, unfilled_uninit_part, .. } = self.all_parts();
 
-        (init, uninit)
+        (unfilled_init_part, unfilled_uninit_part)
     }
     #[inline]
     pub fn unfilled_parts_mut(&mut self) -> (&mut [T::Item], &mut [MaybeUninit<T::Item>]) {
-        let (_, init, uninit) = self.all_parts_mut();
+        let BufferPartsMut { unfilled_init_part, unfilled_uninit_part, .. } = self.all_parts_mut();
 
-        (init, uninit)
+        (unfilled_init_part, unfilled_uninit_part)
     }
 
     /// Revert the internal cursor to 0, forgetting about the initialized items.
@@ -576,15 +593,15 @@ mod tests {
         assert_eq!(unsafe { buffer.unfilled_part_mut().len() }, 32);
         // TODO: more
 
-        let (filled, unfilled_init, unfilled_uninit) = buffer.all_parts();
-        assert_eq!(filled, &[]);
-        assert_eq!(unfilled_init, &[]);
-        assert_eq!(unfilled_uninit.len(), 32);
+        let BufferParts { filled_part, unfilled_init_part, unfilled_uninit_part } = buffer.all_parts();
+        assert_eq!(filled_part, &[]);
+        assert_eq!(unfilled_init_part, &[]);
+        assert_eq!(unfilled_uninit_part.len(), 32);
 
-        let (filled, unfilled_init, unfilled_uninit) = buffer.all_parts_mut();
-        assert_eq!(filled, &mut []);
-        assert_eq!(unfilled_init, &mut []);
-        assert_eq!(unfilled_uninit.len(), 32);
+        let BufferPartsMut { filled_part, unfilled_init_part, unfilled_uninit_part } = buffer.all_parts_mut();
+        assert_eq!(filled_part, &mut []);
+        assert_eq!(unfilled_init_part, &mut []);
+        assert_eq!(unfilled_uninit_part.len(), 32);
 
         let src = b"I am a really nice slice!";
         let modified = b"I am a really wise slice!";
@@ -640,19 +657,19 @@ mod tests {
         let mut buffer = Buffer::from_initializer(initializer);
         buffer.advance(modified.len());
 
-        let (filled, unfilled_init, unfilled_uninit) = buffer.all_parts();
+        let BufferParts { filled_part, unfilled_init_part, unfilled_uninit_part } = buffer.all_parts();
         let modified_again = b"I em a really wise slice!";
-        assert_eq!(filled, modified_again);
-        assert_eq!(unfilled_init, b"\xFF\xFF\xFF\x00");
-        assert_eq!(unfilled_uninit.len(), 3);
+        assert_eq!(filled_part, modified_again);
+        assert_eq!(unfilled_init_part, b"\xFF\xFF\xFF\x00");
+        assert_eq!(unfilled_uninit_part.len(), 3);
 
-        let (filled, unfilled_init, unfilled_uninit) = buffer.all_parts_mut();
-        assert_eq!(filled, modified_again);
-        assert_eq!(unfilled_init, b"\xFF\xFF\xFF\x00");
-        unfilled_init[2] = b'\x13';
-        unfilled_init[3] = b'\x37';
-        assert_eq!(unfilled_init, b"\xFF\xFF\x13\x37");
-        assert_eq!(unfilled_uninit.len(), 3);
+        let BufferPartsMut { filled_part, unfilled_init_part, unfilled_uninit_part } = buffer.all_parts_mut();
+        assert_eq!(filled_part, modified_again);
+        assert_eq!(unfilled_init_part, b"\xFF\xFF\xFF\x00");
+        unfilled_init_part[2] = b'\x13';
+        unfilled_init_part[3] = b'\x37';
+        assert_eq!(unfilled_init_part, b"\xFF\xFF\x13\x37");
+        assert_eq!(unfilled_uninit_part.len(), 3);
 
         let rest = b" Right?";
         buffer.append(rest);
