@@ -249,6 +249,7 @@ impl<I> AssertInitVectors<I> {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(transparent)]
 pub struct SingleVector<T>(pub T);
 
 impl<T> AsRef<[T]> for SingleVector<T> {
@@ -329,6 +330,7 @@ unsafe impl<T: Initialize> Initialize for SingleVector<T> {
 }
 
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct AsUninit<T>(pub T);
 
 impl<T> Deref for AsUninit<T>
