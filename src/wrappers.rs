@@ -2,7 +2,7 @@ use core::borrow::{Borrow, BorrowMut};
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 
-use crate::traits::Initialize;
+use crate::traits::{Initialize, TrustedDeref};
 
 /// A wrapper over `T` that assumes all of `T` to be initialized.
 #[repr(transparent)]
@@ -338,7 +338,7 @@ where
 
 unsafe impl<T, Item> Initialize for AsUninit<T>
 where
-    T: Deref<Target = [Item]> + DerefMut,
+    T: Deref<Target = [Item]> + DerefMut + TrustedDeref,
 {
     type Item = Item;
 

@@ -3,7 +3,13 @@ use core::mem::MaybeUninit;
 use crate::wrappers::AssertInit;
 
 #[cfg(feature = "alloc")]
-use {alloc::boxed::Box, alloc::vec::Vec};
+use alloc::{
+    boxed::Box,
+    rc::Rc,
+    vec::Vec,
+    sync::Arc,
+    string::String,
+};
 
 /// A trait for mutable initializable slices, that provide access to all the data required for
 /// initialization, before the data can be assumed to be fully initialized.
@@ -244,3 +250,102 @@ impl<T, const N: usize> From<AssertInit<[MaybeUninit<T>; N]>> for [T; N] {
         }
     }
 }
+
+/// A marker trait for implementations of [`Deref`](core::ops::Deref) that come with the additional
+/// guarantee that:
+///
+/// 1. The [`Deref::deref`] method will always return a slice with the same length, if the
+///    dereference target happens to a slice (`[T]`);
+/// 2. The [`DerefMut::deref_mut`] method, like [`Deref::deref`] will also always return a slice
+///    with the same length, and that it cannot change the length in any way when calling this
+///    trait method;
+/// 3. The target slice must always point to the same memory, although the address is allowed to
+///    change. In other words, any modifications to the target type, must be visible when calling
+///    the dereference methods again.
+///
+/// This is implemented for most of the familiar types in the standard library, e.g. [`Box`],
+/// [`Vec`], [`Ref`], etc.
+///
+/// This comes with some exceptions: for example do note that this only affects the [`Deref`] and
+/// [`DerefMut`] trait methods. There can still be ways to modify the length of the slice, either
+/// via interior mutability or via mutable references, accessible to safe code, so long as this
+/// is not in the dereference traits.
+///
+/// The aim of this trait is to force that when using whatever slice a [`BufferInitializer`] backs,
+/// it can be confident that the initializedness counter it stores will always be equal to the
+/// total length when the initializer is full. A [`Deref`] implementation that lacks the guarantee
+/// of this trait, would cause Undefined Behavior in the very building blocks of this library,
+/// otherwise.
+///
+/// Note that this is also fully orthogonal to `StableDeref`. So long as [`BufferInitializer`] can
+/// make assumptions about the length always being correct, the actual address of the memory is of
+/// no importance. However, implementing `StableDeref` means that invariant 3 is always upheld, but
+/// it is not clear at the moment whether that also applies to invariant 1 and 2.
+pub unsafe trait TrustedDeref: core::ops::Deref {}
+
+// TODO: Respect the allocator type of must liballoc collections, at least under #[cfg(feature =
+// "nightly")].
+
+// SAFETY: Deref for references is always a no-op, and always returns `self`. Unless the caller
+// changes the length of it beforehand, nothing bad will happen.
+unsafe impl<'a, T: ?Sized> TrustedDeref for &'a T {}
+
+// SAFETY: DerefMut for references is always a no-op.
+unsafe impl<'a, T: ?Sized> TrustedDeref for &'a mut T {}
+
+// SAFETY: The resulting slice is determined by the internal `len` field of the vector. The
+// dereference impls will not change this.
+#[cfg(feature = "alloc")]
+unsafe impl<T> TrustedDeref for Vec<T> {}
+
+// SAFETY: Deref and DerefMut are implemented as a raw pointer dereference by Box. No side effects.
+#[cfg(feature = "alloc")]
+unsafe impl<T: ?Sized> TrustedDeref for Box<T> {}
+
+// SAFETY: Arc is not particularly interesting as it cannot implement DerefMut, but it still
+// upholds the guarantee for Deref.
+#[cfg(feature = "alloc")]
+unsafe impl<T: ?Sized> TrustedDeref for Arc<T> {}
+
+// SAFETY: Same goes for Rc.
+#[cfg(feature = "alloc")]
+unsafe impl<T: ?Sized> TrustedDeref for Rc<T> {}
+
+// SAFETY: While RefCell allows inner types to utilize interior mutability, the actual RAII guard
+// will not do anything wrong.
+unsafe impl<'a, T: ?Sized> TrustedDeref for core::cell::Ref<'a, T> {}
+
+// SAFETY: Same goes for RefMut.
+unsafe impl<'a, T: ?Sized> TrustedDeref for core::cell::RefMut<'a, T> {}
+
+// SAFETY: Same goes for all lock guards.
+#[cfg(feature = "std")]
+unsafe impl<'a, T: ?Sized> TrustedDeref for std::sync::MutexGuard<'a, T> {}
+
+#[cfg(feature = "std")]
+unsafe impl<'a, T: ?Sized> TrustedDeref for std::sync::RwLockReadGuard<'a, T> {}
+
+#[cfg(feature = "std")]
+unsafe impl<'a, T: ?Sized> TrustedDeref for std::sync::RwLockWriteGuard<'a, T> {}
+
+#[cfg(feature = "alloc")]
+unsafe impl TrustedDeref for String {}
+
+// TODO: These are correct, right? Explain why.
+#[cfg(feature = "std")]
+unsafe impl TrustedDeref for std::ffi::CString {}
+#[cfg(feature = "std")]
+unsafe impl TrustedDeref for std::ffi::OsString {}
+#[cfg(feature = "std")]
+unsafe impl TrustedDeref for std::path::PathBuf {}
+
+// SAFETY: As Pin is merely a thin wrapper that in a way works like StableDeref, it will not have
+// any side effects.
+unsafe impl<T: core::ops::Deref> TrustedDeref for core::pin::Pin<T> {}
+
+// SAFETY: While Cow is allowed to change its Deref address, as it will copy when made mutable, its
+// Deref impl will only match the enum and propagate the dereference.
+#[cfg(feature = "alloc")]
+unsafe impl<'a, T: alloc::borrow::ToOwned> TrustedDeref for alloc::borrow::Cow<'a, T> {}
+
+// TODO: binary_heap PeekMut, Lazy, VaList, ManuallyDrop, AssertUnwindSafe, SyncLazy, std ioslices.

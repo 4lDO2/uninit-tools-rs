@@ -6,7 +6,7 @@ use ioslice::init_marker::*;
 #[cfg(feature = "ioslice-iobox")]
 use ioslice::IoBox;
 
-use crate::traits::{Initialize, InitializeVectored};
+use crate::traits::{Initialize, InitializeVectored, TrustedDeref};
 use crate::wrappers::{AssertInit, AssertInitVectors};
 
 impl<'a, 'b, I: InitMarker> From<AssertInitVectors<&'b mut [IoSliceMut<'a, I>]>>
@@ -73,3 +73,10 @@ impl<I: InitMarker> From<AssertInit<IoBox<I>>> for IoBox<Init> {
         unsafe { IoBox::from_raw_parts(ptr, len) }
     }
 }
+
+// TODO: Document safety.
+unsafe impl<'a, I: InitMarker> TrustedDeref for ioslice::IoSlice<'a, I> {}
+unsafe impl<'a, I: InitMarker> TrustedDeref for ioslice::IoSliceMut<'a, I> {}
+
+#[cfg(feature = "ioslice_iobox")]
+unsafe impl<'a, I: InitMarker> TrustedDeref for ioslice::IoBox<'a, I> {}
