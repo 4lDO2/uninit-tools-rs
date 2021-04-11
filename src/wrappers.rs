@@ -314,6 +314,19 @@ impl<T> DerefMut for SingleVector<T> {
         &mut self.0
     }
 }
+// TODO: Add test.
+unsafe impl<T: Initialize> Initialize for SingleVector<T> {
+    type Item = <T as Initialize>::Item;
+
+    #[inline]
+    fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Self::Item>] {
+        <T as Initialize>::as_maybe_uninit_slice(&self.0)
+    }
+    #[inline]
+    unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Self::Item>] {
+        <T as Initialize>::as_maybe_uninit_slice_mut(&mut self.0)
+    }
+}
 
 #[derive(Debug)]
 pub struct AsUninit<T>(pub T);
@@ -324,6 +337,7 @@ where
 {
     type Target = <T as Deref>::Target;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &*self.0
     }
@@ -332,6 +346,7 @@ impl<T> DerefMut for AsUninit<T>
 where
     T: DerefMut,
 {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut *self.0
     }
@@ -343,10 +358,12 @@ where
 {
     type Item = Item;
 
+    #[inline]
     fn as_maybe_uninit_slice(&self) -> &[MaybeUninit<Item>] {
         let slice: &[Item] = &*self;
         crate::cast_init_to_uninit_slice(slice)
     }
+    #[inline]
     unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Item>] {
         let slice_mut: &mut [Item] = &mut *self;
         crate::cast_init_to_uninit_slice_mut(slice_mut)
