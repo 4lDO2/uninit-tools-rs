@@ -315,6 +315,7 @@ impl<T> DerefMut for SingleVector<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct AsUninit<T>(pub T);
 
 impl<T> Deref for AsUninit<T>

@@ -141,14 +141,10 @@ where
     pub fn capacity(&self) -> usize {
         self.all_uninit().len()
     }
-    #[inline]
-    pub fn remaining(&self) -> usize {
-        self.capacity().wrapping_sub(self.items_initialized)
-    }
     /// Get the number of items that must be filled before the buffer gets fully initialized, and
     /// can be turned into an initialized type (e.g. `Box<[U]>`).
     #[inline]
-    pub fn items_to_init(&self) -> usize {
+    pub fn remaining(&self) -> usize {
         debug_assert!(self.capacity() >= self.items_initialized);
         self.capacity().wrapping_sub(self.items_initialized)
     }
@@ -789,6 +785,24 @@ mod tests {
 
     mod single {
         use super::*;
+
+        #[test]
+        fn new_fills_completely() {
+            let slice = *b"Calling BufferInitializer::new() will ensure that the initialization marker is put at the end of the slice, making it fully zero-cost when already using initialized memory.";
+            let mut copy = slice;
+
+            let mut initializer = BufferInitializer::new(&mut copy[..]);
+
+            assert_eq!(initializer.remaining(), 0);
+            assert_eq!(initializer.capacity(), slice.len());
+            assert!(initializer.is_completely_init());
+            assert!(!initializer.is_completely_uninit());
+            assert!(initializer.uninit_part().is_empty());
+            assert!(initializer.uninit_part_mut().is_empty());
+            assert_eq!(initializer.init_part(), slice);
+            assert_eq!(initializer.init_part_mut(), slice);
+            assert!(initializer.try_into_init().is_ok());
+        }
 
         #[test]
         fn basic_initialization() {
