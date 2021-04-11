@@ -1,6 +1,6 @@
 use core::mem::MaybeUninit;
 
-use crate::traits::{Initialize, InitializeExt as _, InitializeVectored};
+use crate::traits::{Initialize, InitializeExt as _, InitializeVectored, TrustedDeref};
 use crate::wrappers::{AsUninit, AssertInit, AssertInitVectors, SingleVector};
 
 /// An initialized tracking a container type that dereferences into a slice of
@@ -54,12 +54,19 @@ impl<T> BufferInitializer<T> {
         self.items_initialized
     }
 }
-impl<T> BufferInitializer<AsUninit<T>>
+impl<T, Item> BufferInitializer<AsUninit<T>>
 where
-    T: core::ops::Deref + core::ops::DerefMut,
+    T: core::ops::Deref<Target = [Item]> + core::ops::DerefMut + TrustedDeref,
 {
+    /// Construct an initializer to a container that is already initialized. This ensures that no
+    /// bytes will be filled with zeroes, as they do not have to.
     pub fn new(init: T) -> Self {
-        Self::uninit(AsUninit(init))
+        let mut this = Self::uninit(AsUninit(init));
+        // SAFETY: AsUninit wrapper ensures the type was already initialized.
+        unsafe {
+            this.advance_to_end();
+        }
+        this
     }
 }
 impl<T> BufferInitializer<T>

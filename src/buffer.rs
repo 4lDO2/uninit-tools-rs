@@ -11,7 +11,7 @@ use core::fmt;
 use core::mem::MaybeUninit;
 
 use crate::initializer::BufferInitializer;
-use crate::traits::Initialize;
+use crate::traits::{Initialize, TrustedDeref};
 use crate::wrappers::AsUninit;
 
 pub struct Buffer<T> {
@@ -107,9 +107,9 @@ impl<T> Buffer<T> {
         &mut self.initializer
     }
 }
-impl<T> Buffer<AsUninit<T>>
+impl<T, Item> Buffer<AsUninit<T>>
 where
-    T: core::ops::Deref + core::ops::DerefMut,
+    T: core::ops::Deref<Target = [Item]> + core::ops::DerefMut + TrustedDeref,
 {
     pub fn new(init: T) -> Self {
         Self::from_initializer(BufferInitializer::new(init))
