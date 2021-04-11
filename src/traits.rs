@@ -3,13 +3,7 @@ use core::mem::MaybeUninit;
 use crate::wrappers::AssertInit;
 
 #[cfg(feature = "alloc")]
-use alloc::{
-    boxed::Box,
-    rc::Rc,
-    vec::Vec,
-    sync::Arc,
-    string::String,
-};
+use alloc::{boxed::Box, rc::Rc, string::String, sync::Arc, vec::Vec};
 
 /// A trait for mutable initializable slices, that provide access to all the data required for
 /// initialization, before the data can be assumed to be fully initialized.

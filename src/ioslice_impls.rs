@@ -1,7 +1,7 @@
 use core::mem::MaybeUninit;
 
-use ioslice::IoSliceMut;
 use ioslice::init_marker::*;
+use ioslice::IoSliceMut;
 
 #[cfg(feature = "ioslice-iobox")]
 use ioslice::IoBox;

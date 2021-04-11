@@ -70,7 +70,10 @@
 //! (If this would be incorporated into `std::io::Read`, there would probably be a simpler unsafe
 //! function, that defaults to the safer wrapper.)
 
-#![cfg_attr(feature = "nightly", feature(maybe_uninit_array_assume_init, new_uninit))]
+#![cfg_attr(
+    feature = "nightly",
+    feature(maybe_uninit_array_assume_init, new_uninit)
+)]
 use core::mem::MaybeUninit;
 
 pub mod buffer;
