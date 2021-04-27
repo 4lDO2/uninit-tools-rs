@@ -116,7 +116,7 @@ impl<'a, T> From<AssertInit<&'a mut [MaybeUninit<T>]>> for &'a mut [T] {
         unsafe { crate::cast_uninit_to_init_slice_mut(init_slice.into_inner()) }
     }
 }
-unsafe impl<T> InitializeVectored for T
+/*unsafe impl<T> InitializeVectored for T
 where
     T: Initialize,
 {
@@ -130,7 +130,7 @@ where
     unsafe fn as_maybe_uninit_vectors_mut(&mut self) -> &mut [Self::UninitVector] {
         core::slice::from_mut(self)
     }
-}
+}*/
 unsafe impl<'a, 'b, T> InitializeVectored for &'a mut [&'b mut [MaybeUninit<T>]] {
     type UninitVector = &'b mut [MaybeUninit<T>];
 
@@ -343,3 +343,21 @@ unsafe impl<T: core::ops::Deref> TrustedDeref for core::pin::Pin<T> {}
 unsafe impl<'a, T: alloc::borrow::ToOwned> TrustedDeref for alloc::borrow::Cow<'a, T> {}
 
 // TODO: binary_heap PeekMut, Lazy, VaList, ManuallyDrop, AssertUnwindSafe, SyncLazy, std ioslices.
+
+/// A marker trait which indicates that two different implementations of [`Initialize`] have the
+/// same memory layout, and behave equivalently with respect to their implementations of
+/// [`Initialize`] and [`AssertInit`].
+///
+/// A usecase for this, is e.g. if you need [`InitializeVectored`]`<Item = IoSliceMut>` for system
+/// call ABI reasons, but you have a different type which still has the same layout, e.g.
+/// [`SingleVector`](crate::wrappers::SingleVector)`<`[`AsUninit`](crate::wrappers::AsUninit)`<IoSliceMut>>`.
+/// In general, it also allows changing the inner T, while still tracking the initializedness
+/// properly. For single-buffer I/O, this allows converting between any [`Equivalent`] types, where
+/// for vectored I/O, it allows a more restricted type of conversion, where they also need to be
+/// slice-castable.
+pub unsafe trait Equivalent<T>
+where
+    T: Initialize,
+    Self: Initialize<Item = <T as Initialize>::Item>,
+{
+}

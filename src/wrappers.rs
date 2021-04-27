@@ -2,7 +2,7 @@ use core::borrow::{Borrow, BorrowMut};
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 
-use crate::traits::{Initialize, TrustedDeref};
+use crate::traits::{Initialize, InitializeVectored, TrustedDeref};
 
 /// A wrapper over `T` that assumes all of `T` to be initialized.
 #[repr(transparent)]
@@ -247,6 +247,11 @@ impl<I> AssertInitVectors<I> {
         self.inner
     }
 }
+impl<T> From<AssertInitVectors<SingleVector<T>>> for AssertInit<T> {
+    fn from(vectors: AssertInitVectors<SingleVector<T>>) -> Self {
+        unsafe { Self::new_unchecked(vectors.into_inner().0) }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -326,6 +331,18 @@ unsafe impl<T: Initialize> Initialize for SingleVector<T> {
     #[inline]
     unsafe fn as_maybe_uninit_slice_mut(&mut self) -> &mut [MaybeUninit<Self::Item>] {
         <T as Initialize>::as_maybe_uninit_slice_mut(&mut self.0)
+    }
+}
+unsafe impl<T: Initialize> InitializeVectored for SingleVector<T> {
+    type UninitVector = T;
+
+    #[inline]
+    fn as_maybe_uninit_vectors(&self) -> &[Self::UninitVector] {
+        core::slice::from_ref(&self.0)
+    }
+    #[inline]
+    unsafe fn as_maybe_uninit_vectors_mut(&mut self) -> &mut [Self::UninitVector] {
+        core::slice::from_mut(&mut self.0)
     }
 }
 

@@ -92,11 +92,11 @@ mod ioslice_impls;
 extern crate alloc;
 
 #[inline]
-unsafe fn cast_slice_same_layout<A, B>(a: &[A]) -> &[B] {
+pub(crate) unsafe fn cast_slice_same_layout<A, B>(a: &[A]) -> &[B] {
     core::slice::from_raw_parts(a.as_ptr() as *const B, a.len())
 }
 #[inline]
-unsafe fn cast_slice_same_layout_mut<A, B>(a: &mut [A]) -> &mut [B] {
+pub(crate) unsafe fn cast_slice_same_layout_mut<A, B>(a: &mut [A]) -> &mut [B] {
     core::slice::from_raw_parts_mut(a.as_mut_ptr() as *mut B, a.len())
 }
 
