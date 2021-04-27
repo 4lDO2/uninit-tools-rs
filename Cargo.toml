@@ -1,6 +1,6 @@
 [package]
 name = "uninit-tools"
-version = "0.0.6"
+version = "0.0.7"
 authors = ["4lDO2 <4lDO2@protonmail.com>"]
 edition = "2018"
 license = "MIT"
